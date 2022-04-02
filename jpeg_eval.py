@@ -1,43 +1,60 @@
-import PIL.Image
+import json
+import os
+from typing import Dict, List
+
 import cv2
 import numpy as np
 import pandas as pd
-import rawpy as rawpy
 
 import metrics
 
-QUALITY_STEPS: int = 5
+QUALITY_STEPS: int = 20
+# Quality settings
+QUALITY_VALUES: np.ndarray = np.linspace(1, 100, QUALITY_STEPS)
+# Where the raw/processed results of the experiment are written on
+DEFAULT_OUT_FILE = "results"  # .csv or .json
 
 
-def images() -> str:
+def images(ext: str) -> str:
     """
     Generator function
     :return: Sequence of image files path to be processed in experience
     """
-    prefix: str = "images/original/NEF/flat_"
 
-    for i in range(100):
-        yield prefix + str(i+1).zfill(3) + ".NEF"
+    possible_ext = (".jpg", ".png")
+
+    if ext not in possible_ext:
+        raise AssertionError(f"Unsupported extension: {ext}")
+
+    prefix: str = "images/original/"
+
+    for file in os.listdir(prefix):
+        if file.endswith(ext):
+            yield prefix+file
 
 
-def main():
-    # The purpose is to compress a set of uncompressed images in JPEG
-    # Compression is performed using multiple quality configurations
-    # For each quality configuration, compute the SSIM of the resulting image (versus the original)
-    # Quality settings
-    quality_parameters: np.ndarray = np.linspace(1, 100, QUALITY_STEPS)
+def compress_n_compare():
+
+    """
+    The purpose is to compress a set of uncompressed images in JPEG
+    Compression is performed using multiple quality configurations
+    For each quality configuration, compute the SSIM of the resulting image (versus the original)
+    :return:
+    """
+
+    # Extension of the images to be processed
+    ext: str = ".png"
 
     # Compress using the above quality parameters
     # Save the compression ratio in a dataframe
     df = pd.DataFrame(data=dict(fname=[], original_size=[], compressed_size=[], CR=[], SSIM=[]))
-    for file_path in images():
+    for file_path in images(ext):
         file_name: str = ".".join(file_path.split("/")[-1].split(".")[:-1])
-        for quality in quality_parameters:
+        for quality in QUALITY_VALUES:
             quality = int(quality)
 
             # Read input file
-            img = rawpy.imread(file_path)
-            img = img.postprocess()
+            img = cv2.imread(file_path)
 
             # Compress input file
             comp_img = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
@@ -67,5 +84,42 @@ def main():
     df.to_csv("results.csv", index=False)
 
 
+def comparison_stats(csv_file_path: str):
+    # Check validity of argument
+    if not os.path.exists(csv_file_path):
+        raise AssertionError(f"Path: {csv_file_path} does not contain a file!")
+    if not csv_file_path.endswith(".csv"):
+        raise AssertionError(f"Argument file {csv_file_path} format is not csv")
+    # Read csv
+    df = pd.read_csv(csv_file_path)
+
+    # For common quality settings, calculate stats for CR and SSIM (min/max/avg/dev)
+    stats: Dict[str, Dict[str, Dict[str, float]]] = dict()
+    for quality_val in QUALITY_VALUES:
+        # Cast quality_val to int
+        quality_val = int(quality_val)
+        # Get df rows where filename.endswith("*_q{qv}")
+        sub_df = pd.DataFrame(data={title: [] for title in df.keys()})
+        for index, row in df.iterrows():
+            if row["fname"].endswith(f"_q{quality_val}"):
+                sub_df.loc[len(sub_df.index)] = row
+        # Set up new entry in stat dict
+        stats[f"q{quality_val}"] = dict()
+        # Write stats in dict
+        cr_list: List[float] = sub_df["CR"]
+        stats[f"q{quality_val}"]["CR"] = {
+            "min": min(cr_list), "max": max(cr_list), "avg": np.mean(cr_list), "dev": np.std(cr_list)
+        }
+        ssim_list: List[float] = sub_df["SSIM"]
+        stats[f"q{quality_val}"]["SSIM"] = {
+            "min": min(ssim_list), "max": max(ssim_list), "avg": np.mean(ssim_list), "dev": np.std(ssim_list)
+        }
+
+    # Store the results in a json file
+    out_file = open(DEFAULT_OUT_FILE+".json", "w")
+    json.dump(stats, out_file, indent=6)
+
+
 if __name__ == '__main__':
-    main()
+    # compress_n_compare()
+    comparison_stats(DEFAULT_OUT_FILE + ".csv")
