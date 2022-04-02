@@ -26,7 +26,7 @@ def images(ext: str) -> str:
     if ext not in possible_ext:
         raise AssertionError(f"Unsupported extension: {ext}")
 
-    prefix: str = "images/original/"
+    prefix: str = "images/dataset/"
 
     for file in os.listdir(prefix):
         if file.endswith(ext):
@@ -38,7 +38,7 @@ def compress_n_compare():
     """
     The purpose is to compress a set of uncompressed images in JPEG
     Compression is performed using multiple quality configurations
-    For each quality configuration, compute the SSIM of the resulting image (versus the original)
+    For each quality configuration, compute the SSIM of the resulting image (versus the dataset)
     :return:
     """
 
@@ -60,7 +60,7 @@ def compress_n_compare():
             comp_img = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
             comp_img_bytes: bytes = np.array(comp_img[1]).tobytes()
 
-            # Calculate compressed bitstream size
+            # Calculate dataset_compressed bitstream size
             cr = int(img.size / (len(comp_img_bytes) * 8))
 
             # Decode JPEG bitstream

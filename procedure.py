@@ -73,8 +73,8 @@ def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -
     # Filename without the extension
     filename: str = ".".join(os.path.basename(target_image).split(".")[:-1])
 
-    command: str = f"cavif -o {output_path}/{filename}.avif " \
-                   f"--quality {quality} --speed={speed} {target_image}"
+    command: str = f"cavif -o {output_path} " \
+                   f"--quality {quality} --speed={speed} {os.path.abspath(target_image)}"
 
     # Execute jxl and measure the time it takes
     # TODO consider better methods of acquiring the CT
@@ -147,19 +147,19 @@ def bulk_compress(dataset_path: str):
     time_record: Dict[str, List[Union[float, str]]] = dict(filename=[], ct=[])
 
     # JPEG XL
-    for target_image in image_list:
-        for quality in quality_param_jxl:
-            for effort in effort_jxl:
-                # Construct output file total path
-                outfile_name: str = f"q{quality}-{effort}.jxl"
-                output_path = image_to_dir(dataset_path, target_image) + outfile_name
-
-                # Add wildcard for now because the extensions are missing
-                ct = encode_jxl(target_image=target_image+ext,
-                                distance=quality, effort=effort, output_path=output_path)
-
-                time_record["filename"].append(outfile_name)
-                time_record["ct"].append(ct)
+    # for target_image in image_list:
+    #     for quality in quality_param_jxl:
+    #         for effort in effort_jxl:
+    #             # Construct output file total path
+    #             outfile_name: str = f"q{quality}-{effort}.jxl"
+    #             output_path = image_to_dir(dataset_path, target_image) + outfile_name
+    #
+    #             # Add wildcard for now because the extensions are missing
+    #             ct = encode_jxl(target_image=target_image+ext,
+    #                             distance=quality, effort=effort, output_path=output_path)
+    #
+    #             time_record["filename"].append(outfile_name)
+    #             time_record["ct"].append(ct)
 
     # AVIF
     for target_image in image_list:
