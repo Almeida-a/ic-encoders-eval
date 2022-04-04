@@ -1,5 +1,6 @@
 import os.path
 import time
+from subprocess import Popen, PIPE
 from typing import List, Dict, Union
 
 import numpy as np
@@ -15,10 +16,9 @@ def encode_jxl(target_image: str, distance: float, effort: int, output_path: str
     :param output_path: Path where the dataset_compressed image should go to
     :return: Time taken to compress
     """
-    # # Filename without the extension
-    # filename: str = ".".join(os.path.basename(target_image).split(".")[:-1])
 
-    command: str = f"cjxl {target_image} {output_path} -v " \
+    # Construct the encoding command
+    command: str = f"cjxl {target_image} {output_path} " \
                    f"--distance={distance} --effort={effort}"
 
     # Execute jxl and measure the time it takes
@@ -43,20 +43,16 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
     :return: Compression time, in s
     """
 
-    # Calculate output file path
-    output_file: str = ".".join(os.path.basename(target_image).split(".")[:-1])
-    output_file = output_path + output_file
-
     # Command to be executed for the compression
-    command: str = f"cwebp -q {quality} -m {effort} {target_image} -o {output_file}"
+    command: str = f"cwebp -v -q {quality} -m {effort} {target_image} -o {output_path}"
 
     # Execute command (and check status)
-    stdout = os.popen(command)
+    p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    _, stderr = p.communicate()
 
     # Extract compression time (read from stdout)
-    time_line: str = stdout.readlines()[2]
+    time_line: str = str(stderr)[2:-1].split(r"\n")[2]
     comp_t = float(time_line[-6:-1])
-    stdout.close()
 
     return comp_t
 
@@ -106,7 +102,7 @@ def image_to_dir(dataset_path: str, target_image: str) -> str:
     return folder
 
 
-def bulk_compress(dataset_path: str):
+def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: bool = True):
     """
     Compresses all raw images in the dataset folder, each encoding done
         with a series of parameters.
@@ -122,6 +118,9 @@ def bulk_compress(dataset_path: str):
         Head -> filename; CT_ms
         Data -> q90e3.avif; 900
                 q1_0e5.jxl; 1000
+    :param webp:
+    :param avif:
+    :param jxl:
     :param dataset_path: Path to the dataset folder
     :return:
     """
@@ -147,54 +146,57 @@ def bulk_compress(dataset_path: str):
     time_record: Dict[str, List[Union[float, str]]] = dict(filename=[], ct=[])
 
     # JPEG XL
-    # for target_image in image_list:
-    #     for quality in quality_param_jxl:
-    #         for effort in effort_jxl:
-    #             # Construct output file total path
-    #             outfile_name: str = f"q{quality}-{effort}.jxl"
-    #             output_path = image_to_dir(dataset_path, target_image) + outfile_name
-    #
-    #             # Add wildcard for now because the extensions are missing
-    #             ct = encode_jxl(target_image=target_image+ext,
-    #                             distance=quality, effort=effort, output_path=output_path)
-    #
-    #             time_record["filename"].append(outfile_name)
-    #             time_record["ct"].append(ct)
+    if jxl is True:
+        for target_image in image_list:
+            for quality in quality_param_jxl:
+                for effort in effort_jxl:
+                    # Construct output file total path
+                    outfile_name: str = f"q{quality}-{effort}.jxl"
+                    output_path = image_to_dir(dataset_path, target_image) + outfile_name
+
+                    # Add wildcard for now because the extensions are missing
+                    ct = encode_jxl(target_image=target_image+ext,
+                                    distance=quality, effort=effort, output_path=output_path)
+
+                    time_record["filename"].append(outfile_name)
+                    time_record["ct"].append(ct)
 
     # AVIF
-    for target_image in image_list:
-        for quality in quality_param_avif:
-            for speed in speed_avif:
-                # Construct output file total path
-                outfile_name: str = f"q{quality}-{speed}.avif"
-                output_path = image_to_dir(dataset_path, target_image) + outfile_name
+    if avif is True:
+        for target_image in image_list:
+            for quality in quality_param_avif:
+                for speed in speed_avif:
+                    # Construct output file total path
+                    outfile_name: str = f"q{quality}-{speed}.avif"
+                    output_path = image_to_dir(dataset_path, target_image) + outfile_name
 
-                # Add wildcard for now because the extensions are missing
-                ct = encode_avif(target_image=target_image+ext,
-                                 quality=quality, speed=speed, output_path=output_path)
+                    # Add wildcard for now because the extensions are missing
+                    ct = encode_avif(target_image=target_image+ext,
+                                     quality=quality, speed=speed, output_path=output_path)
 
-                time_record["filename"].append(outfile_name)
-                time_record["ct"].append(ct)
+                    time_record["filename"].append(outfile_name)
+                    time_record["ct"].append(ct)
 
     # WebP
-    for target_image in image_list:
-        for quality in quality_param_webp:
-            for effort in effort_webp:
-                # Construct output file total path
-                outfile_name: str = f"q{quality}-{effort}.webp"
-                output_path = image_to_dir(dataset_path, target_image) + outfile_name
+    if webp is True:
+        for target_image in image_list:
+            for quality in quality_param_webp:
+                for effort in effort_webp:
+                    # Construct output file total path
+                    outfile_name: str = f"q{quality}-{effort}.webp"
+                    output_path = image_to_dir(dataset_path, target_image) + outfile_name
 
-                # Add wildcard for now because the extensions are missing
-                ct = encode_webp(target_image=target_image+ext,
-                                 quality=quality, effort=effort, output_path=output_path)
+                    # Add wildcard for now because the extensions are missing
+                    ct = encode_webp(target_image=target_image+ext,
+                                     quality=quality, effort=effort, output_path=output_path)
 
-                time_record["filename"].append(outfile_name)
-                time_record["ct"].append(ct)
+                    time_record["filename"].append(outfile_name)
+                    time_record["ct"].append(ct)
 
     # Save csv files
-    df = pd.Dataframe(data=time_record)
-    df.to_csv()
+    df = pd.DataFrame.from_dict(data=time_record)
+    df.to_csv("bulk_results.csv", index=False)
 
 
 if __name__ == '__main__':
-    bulk_compress("images/dataset/")
+    bulk_compress("images/dataset/", jxl=False, webp=False)
