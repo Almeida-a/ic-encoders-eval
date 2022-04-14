@@ -1,5 +1,5 @@
 venv
 images
 
-procedure_results.csv
-results.csv
+procedure_results.*
+results.*
