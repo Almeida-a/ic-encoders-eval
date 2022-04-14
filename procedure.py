@@ -10,9 +10,8 @@ import numpy as np
 import pandas as pd
 
 import metrics
+from parameters import LOSSLESS_EXTENSION, RESULTS_FILE, DATASET_PATH
 
-LOSSLESS_EXTENSION: str = ".png"
-RESULTS_FILE: str = "procedure_results"
 """
     Codecs' versions
         cjxl, djxl -> v0.6.1
@@ -196,7 +195,7 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
         exit(1)
 
     # Read the output image w/ opencv
-    out_image = cv2.imread(out_path)
+    out_image = cv2.imread(out_path)  # FIXME opencv can't decode the codecs at hand. Decode them first
     og_image = get_og_image(compressed=target_image)
     pixels = og_image.shape[0] * og_image.shape[1]
 
@@ -232,11 +231,11 @@ def extract_webp_ct(stderr: bytes) -> float:
     return dt
 
 
-def get_og_image(compressed):
+def get_og_image(compressed) -> np.ndarray:
     # Get original lossless image
     og_image_path = "".join(compressed.split("_compressed"))
     og_image_path = "_".join(og_image_path.split("_")[:-1]) + LOSSLESS_EXTENSION
-    og_image = cv2.imread(og_image_path)
+    og_image = cv2.imread(og_image_path, cv2.IMREAD_UNCHANGED)
     return og_image
 
 
@@ -258,7 +257,7 @@ def image_to_dir(dataset_path: str, target_image: str) -> str:
     return folder
 
 
-def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: bool = True):
+def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     """
     Compresses all raw images in the dataset folder, each encoding done
         with a series of parameters.
@@ -277,7 +276,7 @@ def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: 
     :param webp:
     :param avif:
     :param jxl:
-    :param dataset_path: Path to the dataset folder
+    :param DATASET_PATH: Path to the dataset folder
     :return:
     """
 
@@ -285,7 +284,7 @@ def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: 
         return
 
     # Save all images path relative to dataset_path
-    image_list = os.listdir(dataset_path)
+    image_list = os.listdir(DATASET_PATH)
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
@@ -312,14 +311,14 @@ def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: 
                 for effort in effort_jxl:
 
                     outfile_name, output_path = get_output_path(
-                        dataset_path, effort, quality, target_image, "jxl"
+                        DATASET_PATH, effort, quality, target_image, "jxl"
                     )
 
                     # Print image analysis
                     print(f"Started analysing image \"{outfile_name}\".")
 
                     # Add wildcard for now because the extensions are missing
-                    cs = encode_jxl(target_image=dataset_path+target_image,
+                    cs = encode_jxl(target_image=DATASET_PATH + target_image,
                                     distance=quality, effort=effort,
                                     output_path=output_path)
 
@@ -333,14 +332,14 @@ def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: 
                 for speed in speed_avif:
                     # Construct output file total path
                     outfile_name, output_path = get_output_path(
-                        dataset_path, speed, quality, target_image, "avif"
+                        DATASET_PATH, speed, quality, target_image, "avif"
                     )
 
                     # Print the progress being made
                     print(f"Finished analysing image \"{outfile_name}\".")
 
                     # Add wildcard for now because the extensions are missing
-                    cs = encode_avif(target_image=dataset_path+target_image,
+                    cs = encode_avif(target_image=DATASET_PATH + target_image,
                                      quality=quality, speed=speed, output_path=output_path)
 
                     # Decode and collect stats to stats df
@@ -353,14 +352,14 @@ def bulk_compress(dataset_path: str, jxl: bool = True, avif: bool = True, webp: 
                 for effort in effort_webp:
                     # Construct output file total path
                     outfile_name, output_path = get_output_path(
-                        dataset_path, effort, quality, target_image, "webp"
+                        DATASET_PATH, effort, quality, target_image, "webp"
                     )
 
                     # Print the progress being made
                     print(f"Started analysing image \"{outfile_name}\".")
 
                     # Add wildcard for now because the extensions are missing
-                    cs = encode_webp(target_image=dataset_path+target_image,
+                    cs = encode_webp(target_image=DATASET_PATH + target_image,
                                      quality=quality, effort=effort, output_path=output_path)
 
                     # Decode and collect stats to stats df
@@ -454,5 +453,5 @@ if __name__ == '__main__':
 
     check_codecs()
 
-    bulk_compress("images/dataset/", jxl=True, avif=True, webp=False)
+    bulk_compress(jxl=False, avif=False, webp=True)
     resume_stats()
