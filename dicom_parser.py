@@ -56,7 +56,7 @@ def parse_dcm(filepath: str):
     out_img_path += f"{rep[1]}"
 
     # Write image
-    cv2.imwrite(out_img_path, img_array, (cv2.IMWRITE_TIFF_COMPRESSION, 1))
+    cv2.imwrite(out_img_path, img_array, (cv2.IMWRITE_PNG_COMPRESSION, 0))
 
     # Assert no information loss within the written image
     saved_img_array = cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
@@ -64,7 +64,7 @@ def parse_dcm(filepath: str):
         # Remove written image
         os.remove(out_img_path)
         # Warn the user of the issue
-        print(f"Quality loss applied to the image \"{out_img_path}\"!")
+        print(f"Quality loss accidentally applied to the image \"{out_img_path}\"!")
 
 
 def main():
@@ -73,7 +73,7 @@ def main():
     :return:
     """
     # Specify the directory where the dicom files are
-    raw_dataset: str = "images/dataset_raw/"
+    raw_dataset: str = "images/dataset_dicom/"
     dirs = []
 
     # Get all dicom files (hardcoded)

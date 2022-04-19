@@ -1,16 +1,19 @@
 import math
+from typing import Tuple
+
 from skimage.metrics import structural_similarity as ssim
 import cv2
 import numpy as np
 
 
-def comparable_images(img1: np.ndarray, img2: np.ndarray) -> bool:
-
+def comparable_images(img1: np.ndarray, img2: np.ndarray, same_dtype: bool = False) -> Tuple[bool, str]:
     if img2.shape != img1.shape:
-        print("Images have different shapes!")
-        return False
+        return False, f"Images have different shapes! {img1.shape}, {img2.shape}"
 
-    return True
+    if img2.dtype != img1.dtype and same_dtype:
+        return False, f"Images have different data types! {img1.dtype}, {img2.dtype}"
+
+    return True, ""
 
 
 def mse(img1: np.ndarray, img2: np.ndarray) -> float:
@@ -22,7 +25,8 @@ def mse(img1: np.ndarray, img2: np.ndarray) -> float:
     """
 
     # Images must be comparable
-    assert comparable_images(img1, img2)
+    comparable, error_msg = comparable_images(img1, img2)
+    assert comparable, error_msg
 
     return np.square(np.subtract(img1, img2)).mean()
 
@@ -34,7 +38,8 @@ def psnr(img1: np.ndarray, img2: np.ndarray) -> float:
     :param img2: Another Image
     :return: PSNR score
     """
-    assert comparable_images(img1, img2)
+    comparable, error_msg = comparable_images(img1, img2)
+    assert comparable, error_msg
 
     mean_squared_error = mse(img1, img2)
 
@@ -49,7 +54,6 @@ def psnr(img1: np.ndarray, img2: np.ndarray) -> float:
 
 
 if __name__ == '__main__':
-
     img1_path: str = "images/miles_morales_night_spark-wallpaper-1920x1080.jpg"
     img2_path: str = "images/winter_season_8-wallpaper-1920x1080.jpg"
 

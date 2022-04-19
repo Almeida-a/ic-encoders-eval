@@ -7,17 +7,18 @@ import numpy as np
 import pandas as pd
 
 import metrics
+from parameters import JPEG_EVAL_RESULTS_FILE
 
 QUALITY_STEPS: int = 20
 # Quality settings
 QUALITY_VALUES: np.ndarray = np.linspace(1, 100, QUALITY_STEPS)
 # Where the raw/processed results of the experiment are written on
-DEFAULT_OUT_FILE = "results"  # .csv or .json
 
 
 def images(ext: str) -> str:
     """
     Generator function
+
     :return: Sequence of image files path to be processed in experience
     """
 
@@ -39,6 +40,7 @@ def compress_n_compare():
     The purpose is to compress a set of uncompressed images in JPEG
     Compression is performed using multiple quality configurations
     For each quality configuration, compute the SSIM of the resulting image (versus the dataset)
+
     :return:
     """
 
@@ -116,10 +118,10 @@ def comparison_stats(csv_file_path: str):
         }
 
     # Store the results in a json file
-    out_file = open(DEFAULT_OUT_FILE+".json", "w")
+    out_file = open(JPEG_EVAL_RESULTS_FILE+".json", "w")
     json.dump(stats, out_file, indent=6)
 
 
 if __name__ == '__main__':
     # compress_n_compare()
-    comparison_stats(DEFAULT_OUT_FILE + ".csv")
+    comparison_stats(JPEG_EVAL_RESULTS_FILE + ".csv")

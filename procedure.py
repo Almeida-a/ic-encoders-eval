@@ -10,22 +10,26 @@ import numpy as np
 import pandas as pd
 
 import metrics
-from parameters import LOSSLESS_EXTENSION, RESULTS_FILE, DATASET_PATH
+from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH
 
 """
     Codecs' versions
         cjxl, djxl -> v0.6.1
         cwebp, dwebp -> v0.4.1
         cavif -> v1.3.4
-        avif_encode -> 0.2.2
+        avif_decode -> 0.2.2
             (not sure, can't check w/ -V, I ran cargo install at 4 Apr 2022)
 """
+# TODO record time for all compressions (normalize C/DS retrieval)
+# TODO low priority: implement timeout for
+#  sub-shell calls embedding it in the command
 
 
 def check_codecs():
     """
     Checks if all codecs are present in current machine
     Exits program if one does not exist
+
     :return:
     """
     print("Looking for the codecs...\n")
@@ -125,20 +129,20 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
 
 def extract_jxl_ds(stderr: bytes) -> float:
     # Extract
-    ds: str = re.findall(r"[0-9]+.[0-9]+ MP/s", str(stderr)[2:-1])[0]
+    ds: str = re.findall(r"\d+.\d+ MP/s", str(stderr, "utf-8"))[0]
     return float(ds[:-5])
 
 
 def extract_webp_dt(stderr: bytes) -> float:
     # Extract
-    ds: str = re.findall(r"Time to decode picture: [0-9]+.[0-9]+s", str(stderr)[2:-1])[0]\
+    ds: str = re.findall(r"Time to decode picture: \d+.\d+s", str(stderr, "utf-8"))[0]\
         .split("Time to decode picture: ")[-1]
     return float(ds[:-1])
 
 
 def extract_resolution(stderr: bytes, sep: str = "x") -> List[str]:
     # Extract
-    res: str = re.findall(rf"[0-9]+{sep}[0-9]+", str(stderr))[0]
+    res: str = re.findall(rf"\d+{sep}\d+", str(stderr))[0]
     return res.split(sep)
 
 
@@ -195,7 +199,7 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
         exit(1)
 
     # Read the output image w/ opencv
-    out_image = cv2.imread(out_path)  # FIXME opencv can't decode the codecs at hand. Decode them first
+    out_image = cv2.imread(out_path, cv2.IMREAD_GRAYSCALE)
     og_image = get_og_image(compressed=target_image)
     pixels = og_image.shape[0] * og_image.shape[1]
 
@@ -209,22 +213,22 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
     psnr: float = metrics.psnr(og_image, out_image)
 
     # Convert to grayscale in order to calculate the MSSIM
-    og_image = cv2.cvtColor(og_image, cv2.COLOR_BGR2GRAY)
-    out_image = cv2.cvtColor(out_image, cv2.COLOR_BGR2GRAY)
-    ssim: float = metrics.ssim(og_image, out_image)
+    ssim: float = metrics.ssim(
+        og_image, out_image.astype(np.uint16)
+    )
 
     return ds, mse, psnr, ssim
 
 
 def extract_jxl_cs(stderr: bytes):
     # Find decoding speed in the output pool
-    ds = re.findall(r"[0-9]+.[0-9]+ MP/s", str(stderr))[1][:-5]
+    ds = re.findall(r"\d+.\d+ MP/s", str(stderr))[1][:-5]
     return ds
 
 
 def extract_webp_ct(stderr: bytes) -> float:
     # Extract DT from output
-    dt: str = re.findall(r"Time to encode picture: [0-9]+.[0-9]+s", str(stderr))[0] \
+    dt: str = re.findall(r"Time to encode picture: \d+.\d+s", str(stderr))[0] \
         .split("Time to encode picture: ")[-1]
     # Cast to float
     dt: float = float(dt[:-1])
@@ -276,7 +280,6 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     :param webp:
     :param avif:
     :param jxl:
-    :param DATASET_PATH: Path to the dataset folder
     :return:
     """
 
@@ -288,7 +291,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
-    spread: int = 3
+    spread: int = 6
     quality_param_jxl: np.ndarray = np.linspace(.0, 3.0, spread)
     quality_param_avif = range(1, 101, int(100 / spread))
     quality_param_webp = range(1, 101, int(100 / spread))
@@ -365,14 +368,15 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     # Decode and collect stats to stats df
                     stats = finalize(cs, outfile_name, output_path, stats)
 
+    # TODO If procedure results file already exists, rename new file to filename+_1 or _n
     # Save csv files
-    stats.to_csv(RESULTS_FILE + ".csv", index=False)
+    stats.to_csv(PROCEDURE_RESULTS_FILE + ".csv", index=False)
 
 
 def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
     """
-    Decodes the target file, removes the codec generated files and saves metadata
-        to the provided dataframe
+    Decodes the target file, removes the codec generated files and saves metadata to the provided dataframe
+
     :param cs: Compression time of the provided compressed image file
     :param outfile_name: Basename of the provided file
     :param output_path: Path to the provided file
@@ -405,15 +409,17 @@ def get_output_path(dataset_path: str, effort: int, quality: float, target_image
 
 def resume_stats():
     """
+    Digests raw compression stats into condensed stats, which are min/max/avg/std
 
     :return:
     """
     # Read csv to df
-    df = pd.read_csv(RESULTS_FILE + ".csv")
+    df = pd.read_csv(PROCEDURE_RESULTS_FILE + ".csv")
 
     # Aggregate the results to a dict
     resume: Dict[str, Dict[str, Dict[str, float]]] = dict()
     # df["filename"] but without the "modality_bodypart_" part
+    # TODO add another high level separation for modality
     settings_list: list = [elem.split("_")[-1] for elem in df["filename"]]
     for settings in tuple(set(settings_list)):
         # Dataframe containing only the data associated to the settings at hand
@@ -424,7 +430,7 @@ def resume_stats():
                 fname_df = fname_df.drop(i)
         # Gather statistics
         resume[settings] = {
-            "cs": dict(min=min(fname_df["cs"]), max=max(fname_df["cs"]),
+            "cs": dict(min=fname_df["cs"].min(), max=fname_df["cs"].max(),
                        avg=np.average(fname_df["cs"]),
                        std=np.std(fname_df["cs"])),
             "ds": dict(min=min(fname_df["ds"]), max=max(fname_df["ds"]),
@@ -442,7 +448,7 @@ def resume_stats():
         }
 
     # Save dict to a json
-    out_file = open(RESULTS_FILE + ".json", "w")
+    out_file = open(PROCEDURE_RESULTS_FILE + ".json", "w")
     json.dump(resume, out_file, indent=4)
 
 
@@ -453,5 +459,5 @@ if __name__ == '__main__':
 
     check_codecs()
 
-    bulk_compress(jxl=False, avif=False, webp=True)
+    bulk_compress(jxl=True, avif=True, webp=True)
     resume_stats()
