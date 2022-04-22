@@ -21,9 +21,6 @@ from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH
             (not sure, can't check w/ -V, I ran cargo install at 4 Apr 2022)
 """
 
-# TODO low priority: implement timeout for
-#  sub-shell calls embedding it in the command
-
 
 def check_codecs():
     """
@@ -301,7 +298,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
-    spread: int = 6
+    spread: int = 2
     quality_param_jxl: np.ndarray = np.linspace(.0, 3.0, spread)
     quality_param_avif = range(1, 101, int(100 / spread))
     quality_param_webp = range(1, 101, int(100 / spread))
@@ -328,7 +325,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     )
 
                     # Print image analysis
-                    print(f"Started analysing image \"{outfile_name}\".")
+                    print(f"Started analysing image \"{outfile_name}\"...", end="")
 
                     # Add wildcard for now because the extensions are missing
                     cs = encode_jxl(target_image=DATASET_PATH + target_image,
@@ -337,6 +334,9 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
                     # Decode and collect stats to stats df
                     stats = finalize(cs, outfile_name, output_path, stats)
+
+                    # Print when finished
+                    print("Done!")
 
     # AVIF
     if avif is True:
@@ -349,7 +349,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     )
 
                     # Print the progress being made
-                    print(f"Finished analysing image \"{outfile_name}\".")
+                    print(f"Finished analysing image \"{outfile_name}\"...", end="")
 
                     # Add wildcard for now because the extensions are missing
                     cs = encode_avif(target_image=DATASET_PATH + target_image,
@@ -357,6 +357,9 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
                     # Decode and collect stats to stats df
                     stats = finalize(cs, outfile_name, output_path, stats)
+
+                    # Print when finished
+                    print("Done!")
 
     # WebP
     if webp is True:
@@ -369,7 +372,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     )
 
                     # Print the progress being made
-                    print(f"Started analysing image \"{outfile_name}\".")
+                    print(f"Started analysing image \"{outfile_name}\"... ", end="")
 
                     # Add wildcard for now because the extensions are missing
                     cs = encode_webp(target_image=DATASET_PATH + target_image,
@@ -378,28 +381,34 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     # Decode and collect stats to stats df
                     stats = finalize(cs, outfile_name, output_path, stats)
 
+                    # Print when finished
+                    print("Done!")
+
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
     stats.to_csv(
-        original_basename(PROCEDURE_RESULTS_FILE) + ".csv", index=False
+        original_basename(PROCEDURE_RESULTS_FILE, extension="csv"), index=False
     )
 
 
-def original_basename(intended_abs_filepath: str):
+def original_basename(intended_abs_filepath: str, extension: str):
     """
 
-    :param intended_abs_filepath: Absolute path to a file
+    :param intended_abs_filepath: Absolute path to a file (w/o the file's extension)
+    :param extension: Extension of the file
     :return: Same path, with basename of the file changed to an original one
     """
+    # Trim the dots (probably common to write .ext instead of ext)
+    extension = extension.replace(".", "")
 
     suffix: str = ""
     counter: int = 0
 
-    while os.path.exists(intended_abs_filepath + suffix):
+    while os.path.exists(f"{intended_abs_filepath + suffix}.{extension}"):
         counter += 1
-        suffix += f"_{counter}"
+        suffix = f"_{counter}"
 
-    return intended_abs_filepath + suffix
+    return f"{intended_abs_filepath + suffix}.{extension}"
 
 
 def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
@@ -436,7 +445,7 @@ def get_output_path(dataset_path: str, effort: int, quality: float, target_image
     return outfile_name, output_path
 
 
-def resume_stats():
+def squeeze_data():
     """
     Digests raw compression stats into condensed stats, which are min/max/avg/std
 
@@ -446,38 +455,45 @@ def resume_stats():
     df = pd.read_csv(PROCEDURE_RESULTS_FILE + ".csv")
 
     # Aggregate the results to a dict
-    resume: Dict[str, Dict[str, Dict[str, float]]] = dict()
+    resume: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = dict()
     # df["filename"] but without the "modality_bodypart_" part
-    # TODO add another high level separation for modality
     settings_list: list = [elem.split("_")[-1] for elem in df["filename"]]
+    # df["filename"] but without the "modality_bodypart_setting" part
+    modality_list: list = [elem.split("_")[0] for elem in df["filename"]]
+
     for settings in tuple(set(settings_list)):
-        # Dataframe containing only the data associated to the settings at hand
-        fname_df = df.copy()
-        for i, row in fname_df.iterrows():
-            # If row does not point to specific setting, drop it from df
-            if not row["filename"].endswith(settings):
-                fname_df = fname_df.drop(i)
-        # Gather statistics
-        resume[settings] = {
-            "cs": dict(min=fname_df["cs"].min(), max=fname_df["cs"].max(),
-                       avg=np.average(fname_df["cs"]),
-                       std=np.std(fname_df["cs"])),
-            "ds": dict(min=min(fname_df["ds"]), max=max(fname_df["ds"]),
-                       avg=np.average(fname_df["ds"]),
-                       std=np.std(fname_df["ds"])),
-            "mse": dict(min=min(fname_df["mse"]), max=max(fname_df["mse"]),
-                        avg=np.average(fname_df["mse"]),
-                        std=np.std(fname_df["mse"])),
-            "psnr": dict(min=min(fname_df["psnr"]), max=max(fname_df["psnr"]),
-                         avg=np.average(fname_df["psnr"]),
-                         std=np.std(fname_df["psnr"])),
-            "ssim": dict(min=min(fname_df["ssim"]), max=max(fname_df["ssim"]),
-                         avg=np.average(fname_df["ssim"]),
-                         std=np.std(fname_df["ssim"]))
-        }
+        for modality in tuple(set(modality_list)):
+            # Dataframe containing only the data associated to the settings at hand
+            fname_df = df.copy()
+            for i, row in fname_df.iterrows():
+                # If row does not point to specific setting and modality, drop it from df
+                if not row["filename"].endswith(settings) \
+                        or not row["filename"].startswith(modality):
+                    fname_df = fname_df.drop(i)
+            # Create settings entry if none exists
+            if resume.get(settings) is None:
+                resume[settings] = dict()
+            # Gather statistics
+            resume[settings][modality] = {
+                "cs": dict(min=fname_df["cs"].min(), max=fname_df["cs"].max(),
+                           avg=np.average(fname_df["cs"]),
+                           std=np.std(fname_df["cs"])),
+                "ds": dict(min=min(fname_df["ds"]), max=max(fname_df["ds"]),
+                           avg=np.average(fname_df["ds"]),
+                           std=np.std(fname_df["ds"])),
+                "mse": dict(min=min(fname_df["mse"]), max=max(fname_df["mse"]),
+                            avg=np.average(fname_df["mse"]),
+                            std=np.std(fname_df["mse"])),
+                "psnr": dict(min=min(fname_df["psnr"]), max=max(fname_df["psnr"]),
+                             avg=np.average(fname_df["psnr"]),
+                             std=np.std(fname_df["psnr"])),
+                "ssim": dict(min=min(fname_df["ssim"]), max=max(fname_df["ssim"]),
+                             avg=np.average(fname_df["ssim"]),
+                             std=np.std(fname_df["ssim"]))
+            }
 
     # Save dict to a json
-    out_file = open(PROCEDURE_RESULTS_FILE + ".json", "w")
+    out_file = open(original_basename(PROCEDURE_RESULTS_FILE, extension="json"), "w")
     json.dump(resume, out_file, indent=4)
 
 
@@ -488,5 +504,5 @@ if __name__ == '__main__':
 
     check_codecs()
 
-    bulk_compress(jxl=True, avif=True, webp=True)
-    resume_stats()
+    # bulk_compress(jxl=True, avif=True, webp=True)
+    squeeze_data()
