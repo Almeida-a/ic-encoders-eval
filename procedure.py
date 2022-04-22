@@ -3,7 +3,7 @@ import os.path
 import re
 import time
 from subprocess import Popen, PIPE
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 
 import cv2
 import numpy as np
@@ -20,7 +20,7 @@ from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH
         avif_decode -> 0.2.2
             (not sure, can't check w/ -V, I ran cargo install at 4 Apr 2022)
 """
-# TODO record time for all compressions (normalize C/DS retrieval)
+
 # TODO low priority: implement timeout for
 #  sub-shell calls embedding it in the command
 
@@ -54,19 +54,16 @@ def encode_jxl(target_image: str, distance: float, effort: int, output_path: str
     :param output_path: Path where the dataset_compressed image should go to
     :return: Compression speed, in MP/s
     """
+    pixels = number_of_pixels(target_image)
 
     # Construct the encoding command
     command: str = f"cjxl {target_image} {output_path} " \
-                   f"--distance={distance} --effort={effort}"
+                   f"--distance={distance} --effort={effort} --quiet"
 
-    # Execute and measure the time it takes
-    p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
-    _, stderr = p.communicate()
-    # Check if encoding process was successful
-    if p.returncode != 0:
-        print(f"Error executing the following command:\n\t\"{command}\"")
-        exit(1)
-    return extract_jxl_cs(stderr)
+    # Run and extract ct
+    ct = timed_command(command)
+
+    return pixels / (ct * 1e6)
 
 
 def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -> float:
@@ -78,28 +75,18 @@ def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -
     :param output_path: Directory where the dataset_compressed file
     :return: Compression speed, in MP/s
     """
-    # Extract resolution
-    height, width = cv2.imread(target_image).shape[:2]
-    # Number of pixels in the image
-    pixels = height * width
+
+    pixels = number_of_pixels(target_image)
 
     # Construct the command
     command: str = f"cavif -o {output_path} " \
                    f"--quality {quality} --speed {speed} --quiet " \
                    f"{os.path.abspath(target_image)}"
 
-    # Execute jxl and measure the time it takes
-    # TODO refactor all c/ds to be calculated using time.time in order to normalize the measurements
-    #   Also: use Popen timeout option to specify the command timeout
-    start = time.time()
-    # Try to compress
-    if os.system(command) != 0:
-        print(f"Error executing the following command:\n {command}")
-        exit(1)
-    comp_t: float = time.time() - start
+    ct = timed_command(command)
 
-    # Parse to compression speed
-    cs = pixels / (comp_t * 1e6)
+    # Parse to compression speed MP/s
+    cs = pixels / (ct * 1e6)
 
     return cs
 
@@ -115,16 +102,47 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
     """
 
     # Command to be executed for the compression
-    command: str = f"cwebp -v -q {quality} -m {effort} {target_image} -o {output_path}"
+    command: str = f"cwebp -quiet -v -q {quality} -m {effort} {target_image} -o {output_path}"
 
-    # Execute command (and check status)
-    p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
-    _, stderr = p.communicate()
+    ct = timed_command(command)
 
-    height, width = extract_resolution(stderr, " x ")[0:2]
-    pixels = int(height) * int(width)
+    # Get number of pixels in the image
+    pixels = number_of_pixels(target_image)
 
-    return pixels / (extract_webp_ct(stderr) * 1e6)
+    return pixels / (ct * 1e6)
+
+
+def timed_command(stdin) -> float:
+    """
+
+    :param stdin: Used to run the subshell command
+    :return: Time it took for the command to run (in seconds)
+    """
+    # Execute command and time the CT
+    start = time.time()
+    p = Popen(stdin, shell=True, stdout=PIPE, stderr=PIPE)
+    _, stderr = p.communicate(timeout=60)
+    ct = time.time() - start  # or extract_webp_ct(stderr)
+    # Check for errors
+    return_code: int = p.returncode
+    if return_code != 0:
+        print(f"Error code {return_code}, executing:"
+              f"\nStdIn -> {stdin}"
+              f"\nStdErr -> {stderr}")
+        exit(1)
+
+    return ct
+
+
+def number_of_pixels(target_image) -> int:
+    # Parameter checking
+    assert os.path.exists(target_image), f"Image at \"{target_image}\" does not exist!"
+
+    # Extract resolution
+    height, width = cv2.imread(target_image).shape[:2]
+    # Number of pixels in the image
+    pixels = height * width
+    return pixels
 
 
 def extract_jxl_ds(stderr: bytes) -> float:
@@ -152,61 +170,44 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
     :param target_image:
     :return: DT(s), MSE, PSNR, SSIM
     """
+    # Get pixel count of the image
+    og_image_path = get_og_image(compressed=target_image, only_path=True)
+    pixels = number_of_pixels(og_image_path)
 
     extension: str = target_image.split(".")[-1]
     # Same directory, same name, .png
     out_path: str = ".".join(target_image.split(".")[:-1]) + LOSSLESS_EXTENSION
-    # Decoding speed
-
-    dt: float = -1.
-    ds: float = -1.
 
     if extension == "jxl":
         # Construct decoding command
         command: str = f"djxl {target_image} {out_path}"
-        # Execute command and record time
-        p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
-        _, stderr = p.communicate()
-        if p.returncode != 0:
-            raise AssertionError(f"Error at executing the following command\n => '{command}'")
-        # Extract decoding speed from stderr
 
-        ds = extract_jxl_ds(stderr)
+        dt = timed_command(command)
+
+        # Compute decoding speed (MP/s)
+        ds = pixels / (dt * 1e6)
     elif extension == "avif":
         # Construct decoding command
         command: str = f"avif_decode {target_image} {out_path}"
-        # Execute command and record time
-        start = time.time()
-        if os.system(command) != 0:
-            raise AssertionError(f"Error at executing the following command\n => '{command}'")
-        # Decoding time
-        dt = time.time() - start
+
+        dt = timed_command(command)
+
+        # Compute decoding speed (MP/s)
+        ds = pixels / (dt * 1e6)
     elif extension == "webp":
         # Construct decoding command
         command: str = f"dwebp -v {target_image} -o {out_path}"
-        # Construct command
-        p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
-        # Issue command
-        _, stderr = p.communicate()
-        # Check for errors
-        if p.returncode != 0:
-            raise AssertionError(f"Error at executing"
-                                 f" the following command\n => '{command}'")
-        # Extract decoding time
-        dt = extract_webp_dt(stderr)
+
+        dt = timed_command(command)
+
+        # Compute decoding speed (MP/s)
+        ds = pixels / (dt * 1e6)
     else:
-        print(f"Unsupported extension for decoding: {extension}")
-        exit(1)
+        raise AssertionError(f"Unsupported extension for decoding: {extension}")
 
     # Read the output image w/ opencv
     out_image = cv2.imread(out_path, cv2.IMREAD_GRAYSCALE)
-    og_image = get_og_image(compressed=target_image)
-    pixels = og_image.shape[0] * og_image.shape[1]
-
-    # Calculate decoding speed
-    if ds == -1.:
-        # Calculate decoding speed in MP/s
-        ds = pixels / (dt * 1e6)
+    og_image = cv2.imread(og_image_path, cv2.IMREAD_UNCHANGED)
 
     # Evaluate the quality of the resulting image
     mse: float = metrics.mse(og_image, out_image)
@@ -235,10 +236,19 @@ def extract_webp_ct(stderr: bytes) -> float:
     return dt
 
 
-def get_og_image(compressed) -> np.ndarray:
+def get_og_image(compressed, only_path: bool = False) -> Union[np.ndarray, str]:
+    """
+
+    :param compressed: Path to compressed image
+    :param only_path: Optional flag - Set to true to return only the path to the og image
+    :return: Original image's path or contents
+    """
     # Get original lossless image
     og_image_path = "".join(compressed.split("_compressed"))
     og_image_path = "_".join(og_image_path.split("_")[:-1]) + LOSSLESS_EXTENSION
+
+    if only_path is True:
+        return og_image_path
     og_image = cv2.imread(og_image_path, cv2.IMREAD_UNCHANGED)
     return og_image
 
@@ -368,9 +378,28 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     # Decode and collect stats to stats df
                     stats = finalize(cs, outfile_name, output_path, stats)
 
-    # TODO If procedure results file already exists, rename new file to filename+_1 or _n
     # Save csv files
-    stats.to_csv(PROCEDURE_RESULTS_FILE + ".csv", index=False)
+    # If procedure results file already exists, new file renamed to filename+_1 or _n
+    stats.to_csv(
+        original_basename(PROCEDURE_RESULTS_FILE) + ".csv", index=False
+    )
+
+
+def original_basename(intended_abs_filepath: str):
+    """
+
+    :param intended_abs_filepath: Absolute path to a file
+    :return: Same path, with basename of the file changed to an original one
+    """
+
+    suffix: str = ""
+    counter: int = 0
+
+    while os.path.exists(intended_abs_filepath + suffix):
+        counter += 1
+        suffix += f"_{counter}"
+
+    return intended_abs_filepath + suffix
 
 
 def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
@@ -395,10 +424,10 @@ def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
     return stats
 
 
-def get_output_path(dataset_path: str, effort: int, quality: float, target_image: str, format: str):
+def get_output_path(dataset_path: str, effort: int, quality: float, target_image: str, format_: str):
     # Construct output file total path
     outfile_name: str = target_image.split(LOSSLESS_EXTENSION)[0] \
-                        + "_" + f"q{quality}-e{effort}.{format}"
+                        + "_" + f"q{quality}-e{effort}.{format_}"
     # Trim trailing slash "/"
     trimmed: list = dataset_path.split("/")
     trimmed.remove("")
