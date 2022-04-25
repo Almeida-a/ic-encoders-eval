@@ -1,7 +1,7 @@
 numpy==1.22.3
-opencv_python==4.5.5.64
 pandas==1.4.2
-rawpy==0.17.1
-scikit_image==0.19.2
 pydicom==2.3.0
-python-gdcm
+
+opencv-python~=4.5.5.64
+scikit-image~=0.19.2
+matplotlib~=3.5.1
