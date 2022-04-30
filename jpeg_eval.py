@@ -1,3 +1,10 @@
+""" Goal is to map the JPEG CR into an MSSIM value
+
+Deprecate?
+This is a project side-experiment.
+
+"""
+
 import json
 import os
 from typing import Dict, List

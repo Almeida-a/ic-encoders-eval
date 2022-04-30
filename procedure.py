@@ -23,11 +23,9 @@ from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH
 
 
 def check_codecs():
-    """
-    Checks if all codecs are present in current machine
-    Exits program if one does not exist
+    """ Checks if all codecs are present in current machine
 
-    :return:
+    Exits program if one does not exist
     """
     print("Looking for the codecs...\n")
     if os.system("which cavif") != 0 or os.system("which avif_decode") != 0:
@@ -43,15 +41,15 @@ def check_codecs():
 
 
 def encode_jxl(target_image: str, distance: float, effort: int, output_path: str) -> float:
-    """
-    Encoder used: github.com/libjxl/libjxl/ -> build/tools/cjxl
+    """ Encodes an image using the cjxl program
+
     :param target_image: Path to image targeted for compression encoding
     :param distance: Quality setting as set by cjxl (butteraugli distance)
     :param effort: --effort level parameter as set by cjxl
     :param output_path: Path where the dataset_compressed image should go to
     :return: Compression speed, in MP/s
     """
-    pixels = number_of_pixels(target_image)
+    pixels = total_pixels(target_image)
 
     # Construct the encoding command
     command: str = f"cjxl {target_image} {output_path} " \
@@ -64,16 +62,16 @@ def encode_jxl(target_image: str, distance: float, effort: int, output_path: str
 
 
 def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -> float:
-    """
+    """ Encodes an image using the cavif(-rs) program
 
     :param target_image: Input/Original image
-    :param quality:
-    :param speed:
+    :param quality: --quality configuration
+    :param speed: --speed configuration
     :param output_path: Directory where the dataset_compressed file
     :return: Compression speed, in MP/s
     """
 
-    pixels = number_of_pixels(target_image)
+    pixels = total_pixels(target_image)
 
     # Construct the command
     command: str = f"cavif -o {output_path} " \
@@ -89,8 +87,8 @@ def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -
 
 
 def encode_webp(target_image: str, quality: int, effort: int, output_path: str) -> float:
-    """
-    Encodes an image using the cwebp tool
+    """ Encodes an image using the cwebp program
+
     :param target_image: path/to/image.ext, where the extension needs to be supported by cwebp
     :param quality: Quality loss level (1 to 100), -q option of the tool
     :param effort: Effort of the encoding process (-m option of the tool)
@@ -104,13 +102,15 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
     ct = timed_command(command)
 
     # Get number of pixels in the image
-    pixels = number_of_pixels(target_image)
+    pixels = total_pixels(target_image)
 
     return pixels / (ct * 1e6)
 
 
-def timed_command(stdin) -> float:
-    """
+def timed_command(stdin: str) -> float:
+    """ Runs a given command on a subshell and records its execution time
+
+    Note: Execution timeout implemented to 60 seconds
 
     :param stdin: Used to run the subshell command
     :return: Time it took for the command to run (in seconds)
@@ -131,7 +131,15 @@ def timed_command(stdin) -> float:
     return ct
 
 
-def number_of_pixels(target_image) -> int:
+def total_pixels(target_image: str) -> int:
+    """ Counts the number of pixels on an image
+
+    Count method: height * height
+
+    :param target_image: Input image path
+    :return: Number of pixels
+    """
+
     # Parameter checking
     assert os.path.exists(target_image), f"Image at \"{target_image}\" does not exist!"
 
@@ -143,12 +151,23 @@ def number_of_pixels(target_image) -> int:
 
 
 def extract_jxl_ds(stderr: bytes) -> float:
-    # Extract
+    """ Extract decompression speed from the djxl output
+
+    :param stderr: Console output
+    :return: Decompression speed, in MP/s
+    """
+
     ds: str = re.findall(r"\d+.\d+ MP/s", str(stderr, "utf-8"))[0]
+
     return float(ds[:-5])
 
 
 def extract_webp_dt(stderr: bytes) -> float:
+    """ Extract decompression speed from the dwebp output
+
+    :param stderr: Console output
+    :return: Decompression speed, in MP/s
+    """
     # Extract
     ds: str = re.findall(r"Time to decode picture: \d+.\d+s", str(stderr, "utf-8"))[0]\
         .split("Time to decode picture: ")[-1]
@@ -156,22 +175,29 @@ def extract_webp_dt(stderr: bytes) -> float:
 
 
 def extract_resolution(stderr: bytes, sep: str = "x") -> List[str]:
-    # Extract
+    """ Extract resolution from dwebp or djxl
+
+    :param stderr: Console output
+    :param sep: Separator string - e.g.: 1920x1080, sep="x"
+    :return:
+    """
+
     res: str = re.findall(rf"\d+{sep}\d+", str(stderr))[0]
     return res.split(sep)
 
 
 def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
-    """
+    """ Decodes the image and returns the process' metadata
 
-    :param target_image:
-    :return: DT(s), MSE, PSNR, SSIM
-    """
+    :param target_image: Path to the image to be decoded
+    :return: DT(s), MSE, PSNR, SSIM regarding the compression applied to the image
+    """  # TODO Return also CR
     # Get pixel count of the image
     og_image_path = get_og_image(compressed=target_image, only_path=True)
-    pixels = number_of_pixels(og_image_path)
+    pixels = total_pixels(og_image_path)
 
     extension: str = target_image.split(".")[-1]
+
     # Same directory, same name, .png
     out_path: str = ".".join(target_image.split(".")[:-1]) + LOSSLESS_EXTENSION
 
@@ -209,22 +235,33 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
     # Evaluate the quality of the resulting image
     mse: float = metrics.mse(og_image, out_image)
     psnr: float = metrics.psnr(og_image, out_image)
+    ssim: float = metrics.ssim(og_image, out_image.astype(np.uint16))
 
-    # Convert to grayscale in order to calculate the MSSIM
-    ssim: float = metrics.ssim(
-        og_image, out_image.astype(np.uint16)
-    )
+    if mse == 0:
+        raise AssertionError("Images are equal")
 
     return ds, mse, psnr, ssim
 
 
-def extract_jxl_cs(stderr: bytes):
+def extract_jxl_cs(stderr: bytes) -> str:
+    """ Extracts compression speed from a cjxl output
+
+    :param stderr: Console output
+    :return: Compression speed, in MP/s
+    """
+
     # Find decoding speed in the output pool
     ds = re.findall(r"\d+.\d+ MP/s", str(stderr))[1][:-5]
     return ds
 
 
 def extract_webp_ct(stderr: bytes) -> float:
+    """ Extracts compression speed from a cjxl output
+
+    :param stderr: Console output
+    :return: Compression speed, in MP/s
+    """
+
     # Extract DT from output
     dt: str = re.findall(r"Time to encode picture: \d+.\d+s", str(stderr))[0] \
         .split("Time to encode picture: ")[-1]
@@ -234,7 +271,7 @@ def extract_webp_ct(stderr: bytes) -> float:
 
 
 def get_og_image(compressed, only_path: bool = False) -> Union[np.ndarray, str]:
-    """
+    """ Extract info on the original image given the compressed one
 
     :param compressed: Path to compressed image
     :param only_path: Optional flag - Set to true to return only the path to the og image
@@ -251,7 +288,7 @@ def get_og_image(compressed, only_path: bool = False) -> Union[np.ndarray, str]:
 
 
 def image_to_dir(dataset_path: str, target_image: str) -> str:
-    """
+    """ Not used anymore
 
     :param dataset_path: Path to the dataset folder (dataset for compressed is a sibling folder)
     :param target_image: Path to the image from the original dataset
@@ -269,25 +306,23 @@ def image_to_dir(dataset_path: str, target_image: str) -> str:
 
 
 def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
-    """
-    Compresses all raw images in the dataset folder, each encoding done
-        with a series of parameters.
-    Each coded image will be within a folder named `dataset_path`_compressed/
-    These images will be organized the same way the raw images are organized in the `dataset_path` folder
-    In the _compressed/ folder, instead of imageX.raw (for each image),
-        we will have imageX/qY-eZ.{jxl,avif,webp}, where:
-         Y is the quality setting for the encoder (q1_0 for quality=1.0, for example)
-         Z is the encoding effort (e.g.: e3 for effort=3).
-    When the compression is finished, the function should write a .csv file
-        with information on the encoding time of each encoding process carried out.
-    Structure example of csv file:
-        Head -> filename; CT_ms
-        Data -> q90e3.avif; 900
-                q1_0e5.jxl; 1000
-    :param webp:
-    :param avif:
-    :param jxl:
-    :return:
+    """ Compress and analyse. Outputs analysis to ".csv".
+
+    Fetches lossless images from the DATASET_PATH directory (defined in parameters.py).
+    For each image, analyze:
+        * Compression / Decompression speed (MP/s);
+        * Compression Ratio;
+        * Quality loss evaluating parameters such as MSE, PSNR and MSSIM.
+    This is done for each of the chosen compression algorithms, in order to evaluate it.
+    The analysis results are then stored in a csv file named ${parameters.PROCEDURE_RESULTS_FILE}.csv.
+
+    The csv table entries will be an identifier of the image/format/settings used
+    for that instance - MODALITY_BODY-PART_NUM-TAG_q{float}_e{int}.FORMAT e.g.: CT_HEAD_12_q3.0_e7.jxl
+
+
+    :param webp: If true, toggle WEBP eval (default=True)
+    :param avif: If true, toggle AVIF eval (default=True)
+    :param jxl: If true, toggle JPEG XL eval (default=True)
     """
 
     if all(codec is False for codec in (jxl, avif, webp)):
@@ -308,20 +343,23 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     speed_avif = (4,)
     effort_webp = (4,)
 
-    # Encode (to target path) and record time of compression
-    ct: float  # Record time of compression
+    # Record time of compression
+    ct: float
+
     stats = pd.DataFrame(
         data=dict(filename=[], cs=[], ds=[], mse=[], psnr=[], ssim=[])
-    )
+    )  # TODO incorporate cr (urgent)
 
-    # JPEG XL
+    # JPEG XL evaluation
     if jxl is True:
         for target_image in image_list:
             for quality in quality_param_jxl:
                 for effort in effort_jxl:
 
+                    # Set output path of compressed
                     outfile_name, output_path = get_output_path(
-                        DATASET_PATH, effort, quality, target_image, "jxl"
+                        dataset_path=DATASET_PATH, effort=effort,
+                        quality=quality, target_image=target_image, format_="jxl"
                     )
 
                     # Print image analysis
@@ -345,7 +383,8 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                 for speed in speed_avif:
                     # Construct output file total path
                     outfile_name, output_path = get_output_path(
-                        DATASET_PATH, speed, quality, target_image, "avif"
+                        dataset_path=DATASET_PATH, effort=speed,
+                        quality=quality, target_image=target_image, format_="avif"
                     )
 
                     # Print the progress being made
@@ -368,7 +407,8 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                 for effort in effort_webp:
                     # Construct output file total path
                     outfile_name, output_path = get_output_path(
-                        DATASET_PATH, effort, quality, target_image, "webp"
+                        dataset_path=DATASET_PATH, effort=effort, quality=quality,
+                        target_image=target_image, format_="webp"
                     )
 
                     # Print the progress being made
@@ -387,19 +427,21 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
     stats.to_csv(
-        original_basename(PROCEDURE_RESULTS_FILE, extension="csv"), index=False
+        original_basename(f"{PROCEDURE_RESULTS_FILE}.csv"), index=False
     )
 
 
-def original_basename(intended_abs_filepath: str, extension: str):
-    """
+def original_basename(intended_abs_filepath: str) -> str:
+    """ Get an original filename given the absolute path
 
-    :param intended_abs_filepath: Absolute path to a file (w/o the file's extension)
-    :param extension: Extension of the file
+    Example - give path/to/filename.txt -> it already exists -> return path/to/filename_1.txt
+
+    :param intended_abs_filepath: Absolute path to a file not yet written (w/o the file's extension)
     :return: Same path, with basename of the file changed to an original one
     """
-    # Trim the dots (probably common to write .ext instead of ext)
-    extension = extension.replace(".", "")
+    # Separate path from extension
+    extension: str = intended_abs_filepath.split(".")[-1]
+    intended_abs_filepath: str = ".".join(intended_abs_filepath.split(".")[:-1])
 
     suffix: str = ""
     counter: int = 0
@@ -411,13 +453,14 @@ def original_basename(intended_abs_filepath: str, extension: str):
     return f"{intended_abs_filepath + suffix}.{extension}"
 
 
-def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
-    """
-    Decodes the target file, removes the codec generated files and saves metadata to the provided dataframe
+def finalize(cs: float, outfile_name: str, output_path: str, stats: pd.DataFrame) -> pd.DataFrame:
+    """ Decode, collect eval data and remove compressed image.
+
+    Decodes the target image file, deletes it and saves metadata to the provided dataframe
 
     :param cs: Compression time of the provided compressed image file
-    :param outfile_name: Basename of the provided file
-    :param output_path: Path to the provided file
+    :param outfile_name: Basename of the provided file (compressed image)
+    :param output_path: Path to the provided file (compressed image)
     :param stats: Dataframe holding the data regarding the compressions
     :return: Updated Dataframe
     """
@@ -433,7 +476,17 @@ def finalize(cs, outfile_name, output_path, stats) -> pd.DataFrame:
     return stats
 
 
-def get_output_path(dataset_path: str, effort: int, quality: float, target_image: str, format_: str):
+def get_output_path(dataset_path: str, target_image: str, effort: int, quality: float, format_: str) -> Tuple[str, str]:
+    """ Compute the output path of the compressed version of the target image.
+
+    :param dataset_path: Dataset containing the target image.
+    :param target_image: Input, original and lossless image.
+    :param effort: Effort/speed configuration with which the image compression process will be set to.
+    :param quality: Quality configuration with which the image compression process will be set to.
+    :param format_: Image compression algorithm's extension, e.g.: jxl
+    :return: Output file basename and path
+    """
+
     # Construct output file total path
     outfile_name: str = target_image.split(LOSSLESS_EXTENSION)[0] \
                         + "_" + f"q{quality}-e{effort}.{format_}"
@@ -446,11 +499,13 @@ def get_output_path(dataset_path: str, effort: int, quality: float, target_image
 
 
 def squeeze_data():
-    """
-    Digests raw compression stats into condensed stats, which are min/max/avg/std
+    """ Digests raw compression stats into condensed stats.
 
-    :return:
+    Condensed stats:
+     * are min/max/avg/std per modality, per body-part and per encoding format.
+     * data is saved under {parameters.PROCEDURE_RESULTS_FILE}.json
     """
+
     # Read csv to df
     df = pd.read_csv(PROCEDURE_RESULTS_FILE + ".csv")
 
@@ -493,16 +548,17 @@ def squeeze_data():
             }
 
     # Save dict to a json
-    out_file = open(original_basename(PROCEDURE_RESULTS_FILE, extension="json"), "w")
+    out_file = open(original_basename(f"{PROCEDURE_RESULTS_FILE}.json"), "w")
     json.dump(resume, out_file, indent=4)
 
 
 if __name__ == '__main__':
     # Workaround to a local issue
+    #   For some reason, the subshell doesn't recognize the cwebp tool
     os.environ["PATH"] = f"{os.path.expanduser('~')}" \
                          f"/libwebp-0.4.1-linux-x86-64/bin:" + os.environ["PATH"]
 
     check_codecs()
 
-    # bulk_compress(jxl=True, avif=True, webp=True)
+    bulk_compress(jxl=True, avif=True, webp=True)
     squeeze_data()

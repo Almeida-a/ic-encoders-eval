@@ -1,4 +1,10 @@
-# Procedure parameters
+""" Procedure parameters
+
+This script includes configuration values to the experiment including, but not limited to:
+ * the dataset path
+ * The lossless encoding format of the evaluation input images
+"""
+
 import metrics
 
 LOSSLESS_EXTENSION: str = ".png"
@@ -6,7 +12,7 @@ PROCEDURE_RESULTS_FILE: str = "procedure_results"
 JPEG_EVAL_RESULTS_FILE: str = "jpeg_eval_results"
 DATASET_PATH: str = "images/dataset/"
 # TODO low prio. implement this enforcement upon the code
-GRAYSCALE_MODE: bool = True
+# GRAYSCALE_MODE: bool = True
 
 # Info flags
 JXL_SUPPORTED_VERSIONS: tuple = ("0.6.1",)
