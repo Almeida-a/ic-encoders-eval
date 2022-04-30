@@ -44,7 +44,7 @@ def encode_jxl(target_image: str, distance: float, effort: int, output_path: str
     """ Encodes an image using the cjxl program
 
     :param target_image: Path to image targeted for compression encoding
-    :param distance: Quality setting as set by cjxl (butteraugli distance)
+    :param distance: Quality setting as set by cjxl (butteraugli --distance)
     :param effort: --effort level parameter as set by cjxl
     :param output_path: Path where the dataset_compressed image should go to
     :return: Compression speed, in MP/s
@@ -186,15 +186,19 @@ def extract_resolution(stderr: bytes, sep: str = "x") -> List[str]:
     return res.split(sep)
 
 
-def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
+def decode_compare(target_image: str) -> Tuple[float, float, float, float, float]:
     """ Decodes the image and returns the process' metadata
 
     :param target_image: Path to the image to be decoded
-    :return: DT(s), MSE, PSNR, SSIM regarding the compression applied to the image
-    """  # TODO Return also CR
-    # Get pixel count of the image
+    :return: CR, DT(MP/s), MSE, PSNR, SSIM regarding the compression applied to the image
+    """
+
+    # Get original image
     og_image_path = get_og_image(compressed=target_image, only_path=True)
+
     pixels = total_pixels(og_image_path)
+
+    cr: float = os.path.getsize(og_image_path) / os.path.getsize(target_image)
 
     extension: str = target_image.split(".")[-1]
 
@@ -240,7 +244,7 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float]:
     if mse == 0:
         raise AssertionError("Images are equal")
 
-    return ds, mse, psnr, ssim
+    return cr, ds, mse, psnr, ssim
 
 
 def extract_jxl_cs(stderr: bytes) -> str:
@@ -347,8 +351,8 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     ct: float
 
     stats = pd.DataFrame(
-        data=dict(filename=[], cs=[], ds=[], mse=[], psnr=[], ssim=[])
-    )  # TODO incorporate cr (urgent)
+        data=dict(filename=[], cs=[], ds=[], cr=[], mse=[], psnr=[], ssim=[])
+    )
 
     # JPEG XL evaluation
     if jxl is True:
@@ -388,7 +392,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                     )
 
                     # Print the progress being made
-                    print(f"Finished analysing image \"{outfile_name}\"...", end="")
+                    print(f"Started analysing image \"{outfile_name}\"...", end="")
 
                     # Add wildcard for now because the extensions are missing
                     cs = encode_avif(target_image=DATASET_PATH + target_image,
@@ -464,13 +468,13 @@ def finalize(cs: float, outfile_name: str, output_path: str, stats: pd.DataFrame
     :param stats: Dataframe holding the data regarding the compressions
     :return: Updated Dataframe
     """
-    ds, mse, psnr, ssim = decode_compare(output_path)
+    cr, ds, mse, psnr, ssim = decode_compare(output_path)
     # Remove generated (png and jxl) images
     os.remove(output_path)
     os.remove(".".join(output_path.split(".")[:-1]) + LOSSLESS_EXTENSION)
     # Append new stats do dataframe
     row = pd.DataFrame(
-        dict(filename=[outfile_name], cs=[cs], ds=[ds], mse=[mse], psnr=[psnr], ssim=[ssim])
+        dict(filename=[outfile_name], cs=[cs], ds=[ds], cr=[cr], mse=[mse], psnr=[psnr], ssim=[ssim])
     )
     stats = pd.concat([stats, row])
     return stats
@@ -525,27 +529,23 @@ def squeeze_data():
                 if not row["filename"].endswith(settings) \
                         or not row["filename"].startswith(modality):
                     fname_df = fname_df.drop(i)
-            # Create settings entry if none exists
+            # Create settings and modality entry if none exists
             if resume.get(settings) is None:
                 resume[settings] = dict()
+            if resume[settings].get(modality) is None:
+                resume[settings][modality] = dict()
+
             # Gather statistics
-            resume[settings][modality] = {
-                "cs": dict(min=fname_df["cs"].min(), max=fname_df["cs"].max(),
-                           avg=np.average(fname_df["cs"]),
-                           std=np.std(fname_df["cs"])),
-                "ds": dict(min=min(fname_df["ds"]), max=max(fname_df["ds"]),
-                           avg=np.average(fname_df["ds"]),
-                           std=np.std(fname_df["ds"])),
-                "mse": dict(min=min(fname_df["mse"]), max=max(fname_df["mse"]),
-                            avg=np.average(fname_df["mse"]),
-                            std=np.std(fname_df["mse"])),
-                "psnr": dict(min=min(fname_df["psnr"]), max=max(fname_df["psnr"]),
-                             avg=np.average(fname_df["psnr"]),
-                             std=np.std(fname_df["psnr"])),
-                "ssim": dict(min=min(fname_df["ssim"]), max=max(fname_df["ssim"]),
-                             avg=np.average(fname_df["ssim"]),
-                             std=np.std(fname_df["ssim"]))
-            }
+            for metric in df.keys():
+                # Brownfield solution to excluding the filename key
+                if metric == "filename":
+                    continue
+
+                resume[settings][modality][metric] = dict(
+                    min=fname_df[metric].min(), max=fname_df[metric].max(),
+                    avg=np.average(fname_df[metric]),
+                    std=np.std(fname_df[metric])
+                )
 
     # Save dict to a json
     out_file = open(original_basename(f"{PROCEDURE_RESULTS_FILE}.json"), "w")
