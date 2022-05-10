@@ -1,4 +1,13 @@
-""" Goal is to map the JPEG CR into MSSIM/PSNR values
+"""The goal is to map the JPEG encoded images' CR into MSSIM/PSNR/MSE
+
+In other words, we will try to associate the compression ratio of the JPEG encoded images with the SSIM/PSNR/MSE
+    values of them regarding their original versions.
+More specifically, the purpose is to generate a json file that sums up statistics in the following structure:
+    - quality N (aggregated images encoded w/ -quality == N)
+        - cr: min,max,avg,stddev
+        - mse: min,max,avg,stddev
+        - psnr: min,max,avg,stddev
+        - ssim: min,max,avg,stddev
 
 This is a project side-experiment.
 
@@ -70,13 +79,13 @@ def compress_n_compare():
             assert status is True, f"Error encoding the image \"{file_path}\""
 
             # Get the compressed image size
-            assert img_encode.dtype == np.uint8, f"JPEG bitstream dtype should be uint8, not {img_encode.dtype}!"
-            bit_depth = 8
-            comp_img_size: int = img_encode.size * bit_depth
+            encoded_img_bit_depth = 8
+            assert img_encode.dtype == np.uint8, f"JPEG bitstream dtype should be" \
+                                                 f" uint{encoded_img_bit_depth}, not {img_encode.dtype}!"
 
             # Calculate dataset_compressed bitstream size
             og_image_bitdepth = 8
-            cr = int(img.size * og_image_bitdepth / comp_img_size)
+            cr = img.size * og_image_bitdepth / (img_encode.size * encoded_img_bit_depth)
 
             # Decode JPEG bitstream
             img_comp = cv2.imdecode(np.array(img_encode), cv2.IMREAD_UNCHANGED)
