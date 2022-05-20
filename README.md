@@ -9,7 +9,7 @@ medical imaging.
 1. [About](#about)
 2. [Usage Guide](#usage-guide)
    1. [Setting up](#setting-up)
-      1. [Requirements](#requirements)
+      1. [Hardware Requirements](#hardware-requirements)
       2. [For x86_64 architectures](#for-x86_64-architectures)
       3. [Other Architectures](#other-architectures)
       4. [Dataset](#dataset)
