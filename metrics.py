@@ -37,20 +37,38 @@ def are_images_comparable(img1_: np.ndarray, img2_: np.ndarray, same_dtype: bool
     return True, ""
 
 
-def mse(img1: np.ndarray, img2: np.ndarray) -> float:
+def custom_ssim(img1_: np.ndarray, img2_: np.ndarray) -> float:
+    assert are_images_comparable(img1_, img2_), "Images are not comparable!"
+
+    if len(img1_.shape) == 2 or img1_.shape[-1] <= 3:
+        return ssim(im1=img1_, im2=img2_)
+    elif img1_.shape[-1] > 3:
+        return np.asarray(
+            [ssim(im1=img1_[i], im2=img2_[i]) for i in range(img1_.shape[0])]
+        ).mean()
+
+
+def mse(img1_: np.ndarray, img2_: np.ndarray) -> float:
     """ Calculates the Mean Squared Error between two images.
 
     Reference https://www.statology.org/mean-squared-error-python/
-    :param img1: Image 1
-    :param img2: Image 2
+    :param img1_: Image 1
+    :param img2_: Image 2
     :return: MSE between the "images" in float type
     """
 
     # Images must be comparable
-    comparable, error_msg = are_images_comparable(img1, img2)
+    comparable, error_msg = are_images_comparable(img1_, img2_)
     assert comparable, error_msg
 
-    return np.square(np.subtract(img1, img2)).mean()
+    if len(img1_.shape) == 2:
+        return np.square(np.subtract(img1_, img2_)).mean()
+    elif img1_.shape[2] > 3:
+        # Multi-frame image
+        squared_error: int = 0
+        for ith_frame in range(img1_.shape[0]):
+            squared_error += np.sum(np.square(np.subtract(img1_[ith_frame], img2_[ith_frame])))
+        return squared_error / img1_.size
 
 
 def psnr(img1_: np.ndarray, img2_: np.ndarray) -> float:
