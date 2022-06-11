@@ -25,7 +25,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install pdoc3
       # ADJUST THIS: build your documentation into docs/.
-      - run: pdocs -o docs/ *.py
+      - run: pdocs -o docs/ ../../*.py
       # We use a custom build script for pdoc itself, ideally you just run `pdoc -o docs/ ...` here.
 
       - run: tar --directory docs/ -hcf artifact.tar .
