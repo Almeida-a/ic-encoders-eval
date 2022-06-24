@@ -67,7 +67,7 @@ You will need to include the binaries into the PATH environment variable:
 
 **If** you use bash:
 ```shell
-tar -C ~/jxl-linux-x86_64-static-v0.6.1 -xzvf ~/Downloads/jxl-linux-x86_64-static-v0.6.1.tar.gz
+tar -C ~ -xzvf ~/Downloads/jxl-linux-x86_64-static-v0.6.1.tar.gz
 echo 'export JXL="$HOME/jxl-linux-x86_64-static-v0.6.1"' >> ~/.bashrc
 echo 'export PATH="$JXL/tools:$PATH"' >> ~/.bashrc
 ```
@@ -78,7 +78,7 @@ Download WebP for [x86_64-linux](https://storage.googleapis.com/downloads.webmpr
 . Then run the following commands
 **if** you use bash:
 ```shell
-tar -C ~/libwebp-1.2.1-linux-x86-64/ -xzvf ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
+tar -C ~ -xzvf ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
 echo 'export WEBP_HOME="$HOME/libwebp-1.2.1-linux-x86-64"' >> ~/.bashrc
 echo 'export PATH="$WEBP_HOME/bin:$PATH"' >> ~/.bashrc
 ```
