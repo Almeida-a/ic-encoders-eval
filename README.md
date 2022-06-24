@@ -79,7 +79,7 @@ Download WebP for [x86_64-linux](https://storage.googleapis.com/downloads.webmpr
 **if** you use bash:
 ```shell
 tar -C ~/libwebp-1.2.1-linux-x86-64/ -xzvf ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
-echo 'export WEBP_HOME="$HOME/libwebp-1.2.1-linux-x86-64/"' >> ~/.bashrc
+echo 'export WEBP_HOME="$HOME/libwebp-1.2.1-linux-x86-64"' >> ~/.bashrc
 echo 'export PATH="$WEBP_HOME/bin:$PATH"' >> ~/.bashrc
 ```
 If you use zshell, switch ~/.bashrc with ~/.zshrc.
