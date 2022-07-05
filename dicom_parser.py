@@ -25,6 +25,7 @@ PHOTOMETRIC_INTERPRETATION_TAG = BaseTag(0x0028_0004)  # ColourSpace
 SAMPLES_PER_PIXEL_TAG = BaseTag(0x0028_0002)
 PIXEL_DATA_TAG = BaseTag(0xfeff_00e0)
 PIXEL_DATA_TAG_2 = BaseTag(0x7fe0_0010)
+NUMBER_OF_FRAMES = BaseTag(0x0028_0008)
 
 
 def parse_dcm(filepath: str):
@@ -48,11 +49,22 @@ def parse_dcm(filepath: str):
     samples_per_pixel = file_data[SAMPLES_PER_PIXEL_TAG]
     color_space = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
 
+    single_channel: bool = samples_per_pixel.value == 1
+
     # Read the pixel data
     img_array = file_data.pixel_array
 
+    number_of_frames = file_data.get(NUMBER_OF_FRAMES)
+    if number_of_frames is None:
+        # When the info on # of frames is on the dicom metadata
+        if single_channel and len(img_array.shape) == 3 or len(img_array.shape) == 4:
+            number_of_frames = img_array.shape[0]
+        else:
+            number_of_frames = 1
+
     # Set image path where it will be written on
-    attributes = '_'.join([str(elem.value) for elem in (color_space, samples_per_pixel, bps)])
+    attributes = '_'.join([str(elem) for elem in (color_space.value,
+                                                  samples_per_pixel.value, bps.value, number_of_frames)])
     out_img_path: str = DATASET_PATH + f"{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 
     repetition_id = 0
@@ -72,8 +84,6 @@ def parse_dcm(filepath: str):
 
     out_img_path += LOSSLESS_EXTENSION
 
-    single_channel: bool = samples_per_pixel.value == 1
-
     if len(img_array.shape) <= 2 or not single_channel and len(img_array.shape) == 3:
         saved_img_array = write_single_frame(img_array, out_img_path)
     else:
@@ -87,7 +97,6 @@ def parse_dcm(filepath: str):
 
 
 def to_np_array(apng_img: apng.APNG) -> np.ndarray:
-
     frames_arr = []
 
     for frame, control in apng_img.frames:
@@ -102,7 +111,6 @@ def to_np_array(apng_img: apng.APNG) -> np.ndarray:
 
 
 def im_write_multi_apng(file_name: str, img_array: np.ndarray) -> Tuple[bool, np.ndarray]:
-
     sub_frames_fn_list = []
 
     for i in range(img_array.shape[0]):
@@ -134,7 +142,7 @@ def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channe
     """
 
     # Pre-condition(s)
-    assert is_single_channel and len(img_array.shape) == 3 or\
+    assert is_single_channel and len(img_array.shape) == 3 or \
            not is_single_channel and len(img_array.shape) == 4, "Image is single frame!"
 
     out_img_path_tiff, out_img_path_apng = [out_img_path.replace(".png", format_) for format_ in (".tiff", ".apng")]
@@ -148,7 +156,7 @@ def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channe
     assert status_ is True, "Error writing apng image"
 
     assert (saved_img_array_tiff == saved_img_array_apng).all(), "Quality loss in either apng " \
-                                                                         "or tiff multi-frame image files."
+                                                                 "or tiff multi-frame image files."
 
     return saved_img_array_tiff
 
