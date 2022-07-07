@@ -1,3 +1,10 @@
+"""Main pipeline's module
+
+    Evaluates performance for: avif-webp-jxl
+
+"""
+# TODO include image properties in the statistics
+
 import json
 import os.path
 import re
@@ -11,7 +18,8 @@ import pandas as pd
 
 import metrics
 import util
-from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, DATASET_COMPRESSED_PATH
+from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, DATASET_COMPRESSED_PATH, \
+    SAMPLES_PER_PIXEL
 
 """
     Codecs' versions
@@ -233,6 +241,11 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float, float
 
             # Compute decoding speed (MP/s)
             ds = pixels / (dt * 1e6)
+
+            og_channels = int(os.path.basename(target_image).split("_")[SAMPLES_PER_PIXEL])
+            if og_channels == 1:
+                transcode_gray(decoded_path)
+
         case "webp":
 
             decoded_path: str = target_image.replace("webp", decoded_extension)
@@ -245,6 +258,11 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float, float
 
             # Compute decoding speed (MP/s)
             ds = pixels / (dt * 1e6)
+
+            og_channels = int(os.path.basename(target_image).split("_")[SAMPLES_PER_PIXEL])
+            if og_channels == 1:
+                transcode_gray(decoded_path)
+
         case _:
             raise AssertionError(f"Unsupported extension for decoding: {encoded_extension}")
 
@@ -262,6 +280,14 @@ def decode_compare(target_image: str) -> Tuple[float, float, float, float, float
     ssim: float = metrics.custom_ssim(og_image, decoded_image.astype(np.uint16))
 
     return cr, ds, mse, psnr, ssim
+
+
+def transcode_gray(decoded_path):
+    # Cavif's .avif files only store in RGB/YCbCr format
+    img_gray = cv2.imread(decoded_path, cv2.IMREAD_GRAYSCALE)
+    assert img_gray is not None, f"Error reading decode output: {decoded_path}"
+    assert cv2.imwrite(decoded_path, img_gray) is True, "Error writing" \
+                                                        "gray version for rgb (gray original) image."
 
 
 def extract_jxl_cs(stderr: bytes) -> str:
@@ -363,7 +389,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
-    spread: int = 2
+    spread: int = 5
     quality_param_jxl: np.ndarray = np.linspace(.0, 3.0, spread)
     quality_param_avif = range(1, 101, int(100 / spread))
     quality_param_webp = range(1, 101, int(100 / spread))
@@ -384,7 +410,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     if jxl is True:
         for target_image in image_list:
 
-            if not target_image.endswith("apng") and not target_image.endswith("png"):
+            if not target_image.endswith(".apng") and not target_image.endswith(".png"):
                 continue
 
             for quality in quality_param_jxl:
@@ -413,7 +439,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     if avif is True:
         for target_image in image_list:
 
-            if not target_image.endswith("png"):
+            if not target_image.endswith(".png"):
                 continue
 
             for quality in quality_param_avif:
@@ -441,7 +467,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     if webp is True:
         for target_image in image_list:
 
-            if not target_image.endswith("png") and not target_image.endswith("tiff"):
+            if not target_image.endswith(".png"):
                 continue
 
             for quality in quality_param_webp:
@@ -507,14 +533,21 @@ def finalize(cs: float, outfile_name: str, output_path: str, stats: pd.DataFrame
     """
     cr, ds, mse, psnr, ssim = decode_compare(output_path)
     # Remove generated (png and jxl) images
-    for file in os.listdir(DATASET_COMPRESSED_PATH):
-        os.remove(os.path.abspath(DATASET_COMPRESSED_PATH+file))
+    rm_encoded()
     # Append new stats do dataframe
     row = pd.DataFrame(
         dict(filename=[outfile_name], cs=[cs], ds=[ds], cr=[cr], mse=[mse], psnr=[psnr], ssim=[ssim])
     )
     stats = pd.concat([stats, row])
     return stats
+
+
+def rm_encoded():
+    """Removes compressed files from a previous (probably unsuccessful) execution
+
+    """
+    for file in os.listdir(DATASET_COMPRESSED_PATH):
+        os.remove(os.path.abspath(DATASET_COMPRESSED_PATH + file))
 
 
 def get_output_path(dataset_path: str, target_image: str, effort: int, quality: float, format_: str) -> Tuple[str, str]:
@@ -589,8 +622,9 @@ def squeeze_data():
 
 
 if __name__ == '__main__':
-
     check_codecs()
 
-    bulk_compress(jxl=False, avif=True, webp=True)
+    rm_encoded()
+
+    bulk_compress(jxl=True, avif=True, webp=True)
     squeeze_data()

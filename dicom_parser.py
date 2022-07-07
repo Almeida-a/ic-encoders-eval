@@ -3,6 +3,7 @@
     Extracts the image from the DICOM file (assuming only one frame is present)
     and writes it in the dataset {parameters.DATASET_PATH} in the image format {parameters.LOSSLESS_EXTENSION}.
 """
+# TODO deprecate .tiff generation for multi-frame images (since webp doesn't support more than 1 frame)
 
 import os
 from typing import List, Tuple
@@ -161,8 +162,7 @@ def write_single_frame(img_array: np.ndarray, out_img_path: str) -> np.ndarray:
     """
 
     # Encode and write image to dataset folder
-    assert cv2.imwrite(out_img_path, img_array, params=[cv2.IMWRITE_TIFF_COMPRESSION, 1]) \
-           is True, "Image writing (single frame) failed"
+    assert cv2.imwrite(out_img_path, img_array) is True, "Image writing (single frame) failed"
     # Assert no information loss within the written image
     saved_img_array: np.ndarray = cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
     return saved_img_array

@@ -20,6 +20,14 @@ CAVIF_RS_SUPPORTED_VERSIONS: tuple = ("1.3.4",)
 AVIF_DECODE_SUPPORTED_VERSIONS: tuple = ("0.2.2",)
 WEBP_SUPPORTED_VERSIONS: tuple = ("0.4.1",)
 
+# FILENAME_KEYWORDS = id
+MODALITY = 0
+BODYPART = 1
+COLORSPACE = 2
+SAMPLES_PER_PIXEL = 3
+BITS_PER_SAMPLE = 4
+DEPTH = 5  # Number of frames in the image (> 1 if multi frame)
+
 # Default settings per compression method
 DEFAULTS = dict(
     jxl=dict(quality=1., effort=7),
