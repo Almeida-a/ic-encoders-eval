@@ -12,6 +12,7 @@ LOSSLESS_EXTENSION: str = ".png"
 PROCEDURE_RESULTS_FILE: str = "procedure_results"
 JPEG_EVAL_RESULTS_FILE: str = "jpeg_eval_results"
 DATASET_PATH: str = "images/dataset/"
+DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"
 
 # Info flags
 JXL_SUPPORTED_VERSIONS: tuple = ("0.6.1",)

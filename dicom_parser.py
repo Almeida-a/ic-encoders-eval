@@ -17,6 +17,7 @@ from pydicom.tag import BaseTag
 from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 
 # TODO Go get Dicom files w/ various color-spaces
+from util import to_np_array
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
@@ -55,7 +56,9 @@ def parse_dcm(filepath: str):
     img_array = file_data.pixel_array
 
     number_of_frames = file_data.get(NUMBER_OF_FRAMES)
-    if number_of_frames is None:
+    if number_of_frames is not None:
+        number_of_frames = number_of_frames.value
+    else:
         # When the info on # of frames is on the dicom metadata
         if single_channel and len(img_array.shape) == 3 or len(img_array.shape) == 4:
             number_of_frames = img_array.shape[0]
@@ -94,20 +97,6 @@ def parse_dcm(filepath: str):
         os.remove(out_img_path)
         # Warn the user of the issue
         raise AssertionError(f"Quality loss accidentally applied to the image \"{out_img_path}\"!")
-
-
-def to_np_array(apng_img: apng.APNG) -> np.ndarray:
-    frames_arr = []
-
-    for frame, control in apng_img.frames:
-        tmp_fname = "tmp.png"
-        frame.save(tmp_fname)
-        frames_arr.append(
-            cv2.imread(tmp_fname, cv2.IMREAD_UNCHANGED)
-        )
-        os.remove(tmp_fname)
-
-    return np.array(frames_arr)
 
 
 def im_write_multi_apng(file_name: str, img_array: np.ndarray) -> Tuple[bool, np.ndarray]:
