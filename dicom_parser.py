@@ -6,9 +6,7 @@
 # TODO deprecate .tiff generation for multi-frame images (since webp doesn't support more than 1 frame)
 
 import os
-from typing import List, Tuple
 
-import apng
 import cv2
 import numpy as np
 from PIL import Image, ImageSequence
@@ -16,9 +14,8 @@ from pydicom import dcmread, FileDataset
 from pydicom.tag import BaseTag
 
 from parameters import DATASET_PATH, LOSSLESS_EXTENSION
-
 # TODO Go get Dicom files w/ various color-spaces
-from util import to_np_array
+from custom_apng import write_apng
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
@@ -100,26 +97,6 @@ def parse_dcm(filepath: str):
         raise AssertionError(f"Quality loss accidentally applied to the image \"{out_img_path}\"!")
 
 
-def im_write_multi_apng(file_name: str, img_array: np.ndarray) -> Tuple[bool, np.ndarray]:
-    sub_frames_fn_list = []
-
-    for i in range(img_array.shape[0]):
-        frame: np.ndarray = img_array[i]
-
-        sub_frame_fname = f"tmp{i}.png"
-        sub_frames_fn_list.append(sub_frame_fname)
-
-        cv2.imwrite(sub_frame_fname, frame, params=[cv2.IMWRITE_TIFF_COMPRESSION, 1])
-
-    apng_img = apng.APNG.from_files(sub_frames_fn_list)
-    apng_img.save(file_name)
-
-    for i in range(img_array.shape[0]):
-        os.remove(f"tmp{i}.png")
-
-    return True, to_np_array(apng_img)
-
-
 def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channel: bool):
     """Write a multi-frame image to the specified path
 
@@ -139,10 +116,11 @@ def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channe
 
     # Save to tiff
     assert cv2.imwritemulti(out_img_path_tiff, img_array) is True, "Image writing (multi-frame) failed."
-    frames: List[Image] = ImageSequence.all_frames(Image.open(out_img_path_tiff))
+    frames: list[Image] = ImageSequence.all_frames(Image.open(out_img_path_tiff))
     saved_img_array_tiff = np.array([np.array(frames[i]) for i in range(img_array.shape[0])])
 
-    status_, saved_img_array_apng = im_write_multi_apng(out_img_path_apng, img_array)
+    # Save to apng
+    status_, saved_img_array_apng = write_apng(out_img_path_apng, img_array)
     assert status_ is True, "Error writing apng image"
 
     assert (saved_img_array_tiff == saved_img_array_apng).all(), "Quality loss in either apng " \
@@ -168,7 +146,13 @@ def write_single_frame(img_array: np.ndarray, out_img_path: str) -> np.ndarray:
     return saved_img_array
 
 
-def exec_shell(command):
+def exec_shell(command: str):
+    """Executes a command w/ sub-shell
+
+    Also, ensures its correct operation w/ the assert feature
+
+    @param command: Command to be executed
+    """
     return_code = os.system(command)
     assert return_code == 0, f"Problem executing \"{command}\", code {return_code}"
 
@@ -176,7 +160,7 @@ def exec_shell(command):
 if __name__ == "__main__":
     # Specify the directory where the dicom files are
     raw_dataset: str = "images/dataset_dicom/"
-    dirs: List[str] = []
+    dirs: list[str] = []
 
     # Get all dicom files (hardcoded)
     for filename in os.listdir(raw_dataset):
