@@ -202,15 +202,16 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
             decoded_path: str = encoded_path.replace("avif", decoded_extension)
 
             if og_image_path.endswith(".apng"):
+                # Execute decode command for all frames and collect DTs
                 dt = custom_multiframe_decoding(decoded_path, encoded_extension)
+
             elif og_image_path.endswith(".png"):
                 # Construct decoding command
                 command = construct_davif(decoded_path, encoded_path)
 
                 dt = timed_command(command)
 
-                og_channels = dataset_img_info(encoded_path, SAMPLES_PER_PIXEL)
-                if og_channels == "1" and not og_image_path.endswith(".apng"):
+                if dataset_img_info(encoded_path, SAMPLES_PER_PIXEL) == "1":
                     # AVIF output is always RGB/YCbCr
                     transcode_gray(decoded_path)
             else:
@@ -227,16 +228,17 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
                 # Execute decode command for all frames and collect DTs
                 dt = custom_multiframe_decoding(decoded_path, encoded_extension)
 
-            elif encoded_path.endswith(".png"):
+            elif og_image_path.endswith(".png"):
                 # Construct decoding command
                 command = construct_dwebp(decoded_path, encoded_path)
 
                 dt = timed_command(command)
 
                 if dataset_img_info(encoded_path, SAMPLES_PER_PIXEL) == "1":
+                    # WebP output is always RGB/YCbCr
                     transcode_gray(decoded_path)
             else:
-                raise AssertionError(f"Illegal input image format: '{encoded_path}'")
+                raise AssertionError(f"Illegal input image format: '{og_image_path}'")
 
             # Compute decoding speed (MP/s)
             ds = pixels / (dt * 1e6)

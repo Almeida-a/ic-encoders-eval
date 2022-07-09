@@ -38,17 +38,17 @@ def construct_davif(decoded_path: str, input_path: str):
     return command
 
 
-def construct_dwebp(decoded_path: str, target_image: str, additional_options: str = ""):
+def construct_dwebp(decoded_path: str, input_path: str, additional_options: str = ""):
     """Creates the command for decoding an image from webp
 
     Given the provided configurations
 
     @param additional_options: More options
     @param decoded_path: Output path
-    @param target_image: Input path
+    @param input_path: Input path
     @return: Command
     """
-    command: str = f"dwebp -v {target_image} {additional_options} -o {decoded_path}"
+    command: str = f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
     return command
 
 
