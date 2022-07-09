@@ -77,7 +77,7 @@ def staple_pngs(output_path, *pngs: str) -> bool:
     @param pngs: png file names list
     @return: Status code
     """
-    frames = np.array(cv2.imread(img) for img in pngs)
+    frames = np.array([cv2.imread(img, cv2.IMREAD_UNCHANGED) for img in pngs])
 
     return write_apng(output_path, frames)[0]
 

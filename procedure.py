@@ -208,16 +208,16 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
                 command = construct_davif(decoded_path, encoded_path)
 
                 dt = timed_command(command)
+
+                og_channels = dataset_img_info(encoded_path, SAMPLES_PER_PIXEL)
+                if og_channels == "1" and not og_image_path.endswith(".apng"):
+                    # AVIF output is always RGB/YCbCr
+                    transcode_gray(decoded_path)
             else:
                 raise AssertionError(f"Illegal input image format: '{og_image_path}'")
 
             # Compute decoding speed (MP/s)
             ds = pixels / (dt * 1e6)
-
-            og_channels = dataset_img_info(encoded_path, SAMPLES_PER_PIXEL)
-            if og_channels == "1":
-                # AVIF output is always RGB/YCbCr
-                transcode_gray(decoded_path)
 
         case "webp":
 
@@ -232,15 +232,14 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
                 command = construct_dwebp(decoded_path, encoded_path)
 
                 dt = timed_command(command)
+
+                if dataset_img_info(encoded_path, SAMPLES_PER_PIXEL) == "1":
+                    transcode_gray(decoded_path)
             else:
                 raise AssertionError(f"Illegal input image format: '{encoded_path}'")
 
             # Compute decoding speed (MP/s)
             ds = pixels / (dt * 1e6)
-
-            og_channels = dataset_img_info(encoded_path, SAMPLES_PER_PIXEL)
-            if og_channels == "1":
-                transcode_gray(decoded_path)
 
         case _:
             raise AssertionError(f"Unsupported extension for decoding: {encoded_extension}")
@@ -289,6 +288,11 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
         dt += timed_command(
             custom_command(decoded_path=frame_names[-1], input_path=DATASET_COMPRESSED_PATH+frame)
         )
+
+        # Either avif or webp store images in multichannel
+        if dataset_img_info(DATASET_COMPRESSED_PATH+frame, SAMPLES_PER_PIXEL) == "1":
+            transcode_gray(frame_names[-1])
+
     # Staple output png frames
     assert custom_apng.staple_pngs(decoded_path, *frame_names) is True, "Error joining PNGs"
 
@@ -298,9 +302,9 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
 def dataset_img_info(target_image: str, keyword: int) -> str:
     """Extract the information present in the names of the pre-processed dataset
 
-    @param target_image:
-    @param keyword:
-    @return:
+    @param target_image: Path to the image which name is to be evaluated
+    @param keyword: parameter defined attribute (id) to extract
+    @return: Attribute value for the image
     """
     return os.path.basename(target_image).split("_")[keyword]
 
@@ -552,5 +556,5 @@ if __name__ == '__main__':
 
     rm_encoded()
 
-    bulk_compress(jxl=False, avif=True, webp=True)
+    bulk_compress(jxl=False, avif=False, webp=True)
     squeeze_data()
