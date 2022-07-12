@@ -99,7 +99,7 @@ def compress_n_compare():
 
             # Calculate the SSIM between the images
             mse, psnr, ssim = (
-                metric(img, img_encoded.pixel_array) for metric in (metrics.mse, metrics.psnr, metrics.custom_ssim)
+                metric(img, img_encoded.pixel_array) for metric in (metrics.custom_mse, metrics.custom_psnr, metrics.custom_ssim)
             )
 
             # Write to dataframe

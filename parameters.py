@@ -40,5 +40,5 @@ DEFAULTS = dict(
 #   image quality evaluating metrics and the respective functions reference
 # TODO (low prio.) use this on the procedure instead of hard coding the metrics
 qmetrics = dict(
-    mse=metrics.mse, psnr=metrics.psnr, ssim=metrics.ssim
+    mse=metrics.custom_mse, psnr=metrics.custom_psnr, ssim=metrics.ssim
 )

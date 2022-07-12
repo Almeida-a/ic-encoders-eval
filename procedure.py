@@ -255,8 +255,8 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
         og_image = cv2.imread(og_image_path, cv2.IMREAD_UNCHANGED)
 
     # Evaluate the quality of the resulting image
-    mse: float = metrics.mse(og_image, decoded_image)
-    psnr: float = metrics.psnr(og_image, decoded_image)
+    mse: float = metrics.custom_mse(og_image, decoded_image)
+    psnr: float = metrics.custom_psnr(og_image, decoded_image)
     ssim: float = metrics.custom_ssim(og_image, decoded_image.astype(np.uint16))
 
     return cr, ds, mse, psnr, ssim
