@@ -1,6 +1,13 @@
+"""
+    Function names convention:
+        y_per_x -> produces a 2D graph:
+         y being a dependent variable (ssim, psnr, mse, ds, cs)
+         x being a controlled/independent variable (effort, quality)
+        fixed variables -> modality, compression format
+
+"""
+import json
 import re
-from typing import List, Callable, Any
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas
@@ -8,34 +15,26 @@ import pandas as pd
 
 from parameters import PROCEDURE_RESULTS_FILE
 
-"""
-    Function names convention:
-        y_per_x -> produces a 2D graph:
-         y being a dependent variable (ssim, psnr, mse, ds, cs)
-         x being a controlled/independent variable (effort, quality)
-        fixed variables -> modality, compression format
-        
-"""
+BARS_COLOR = "#007700"
+
+METRICS_DESCRIPTION = dict(
+    ds="Decompression Speed", cs="Compression Speed", cr="Compression Ratio",
+    ssim="Structure Similarity", psnr="Peak Signal to Noise Ratio", mse="Mean Squared Error"
+)
+UNITS = dict(
+    ds="MP/s", cs="MP/s"
+)
 
 
-# TODO either produce a function for each case or implement a master
-#  function (an intermediate solution can also be creating functions
-#  for each case but they all call over a private master function.
-#  This would maybe mitigate the perceived complexity for possible code readers)
-
-
-def draw_graph(x: List[float], y: List[float],
+def draw_lines(x: list[float], y: list[float],
                x_label: str = "", y_label: str = "", title: str = ""):
     """Draws a graph given a list of x and y values
 
-    TODO add parameter to define type of graph (line, histogram, ...)
-
-    :param x: Independent axis vector
-    :param y: Dependent axis vector
-    :param x_label:
-    :param y_label:
-    :param title:
-    :return:
+    @param x: Independent axis vector
+    @param y: Dependent axis vector
+    @param x_label:
+    @param y_label:
+    @param title:
     """
 
     # Plot the lists' points
@@ -67,9 +66,8 @@ def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
     return df.loc[df[key] == value]
 
 
-def metric_per_image(modality: str, metric: str,
-                     raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv",
-                     compression_format: str = "jxl"):
+def metric_per_image(modality: str, metric: str, compression_format: str,
+                     raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
     """Given a data file, display statistics of kind metric = f(quality)
 
     Line graph portraying metric = f(quality), given the modality and format
@@ -101,10 +99,78 @@ def metric_per_image(modality: str, metric: str,
     ]
 
     # Draw graph
-    draw_graph(x=list(range(len(ssim_y))), y=ssim_y, y_label=metric, title=f"Modality: {modality},"
+    draw_lines(x=list(range(len(ssim_y))), y=ssim_y, y_label=metric, title=f"Modality: {modality},"
                                                                            f" Format: {compression_format}")
 
 
+def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_label: str = "", title: str = ""):
+    """Draw a histogram using matplotlib
+
+    @param keys: Name of each bar
+    @param values: Height of each bar
+    @param errs: Error / Standard deviation of each bar
+    @param x_label: Label for the x-axis
+    @param y_label: Label for the y-axis
+    @param title: Graph title
+    """
+
+    # Sort the bars
+    dict_unsorted = {keys[i]: (values[i], errs[i]) for i in range(len(keys))}
+    dict_sorted = dict(sorted(dict_unsorted.items(), key=lambda x: x[0], reverse=False))
+    keys = dict_sorted.keys()
+    values, errs = [[value[i] for value in dict_sorted.values()] for i in (0, 1)]
+
+    plt.bar(keys, values, yerr=errs, color=BARS_COLOR)
+    plt.xlabel(x_label.upper())
+    plt.ylabel(y_label.upper())
+    plt.title(title.upper())
+
+    min_: float = min([values[i] - errs[i] for i in range(len(values))])
+    max_: float = max([values[i] + errs[i] for i in range(len(values))])
+    plt.ylim(ymax=max_, ymin=min_)
+
+    plt.show()
+
+
+def metric_per_quality(modality: str, metric: str, compression_format: str,
+                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
+    """Draws bar graph for metric results (mean + std error) per quality setting
+
+    @param modality:
+    @param metric:
+    @param compression_format:
+    @param raw_data_fname:
+    """
+
+    modality = modality.upper()
+    metric = metric.lower()
+    compression_format = compression_format.lower()
+
+    with open(raw_data_fname) as f:
+        data: dict = json.load(f)
+
+    # Initialize x, y and err lists, respectively
+    qualities, avg, std = [], [], []
+    histogram = dict()
+
+    for key, value in data.items():
+        if not key.endswith(compression_format):
+            continue
+
+        stats = value[modality][metric]
+
+        # histogram[quality] = metric.mean
+        histogram[key.split("-")[0]] = stats["avg"]
+
+        qualities.append(key.split("-")[0])
+        avg.append(stats["avg"])
+        std.append(stats["std"])
+
+    unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
+    draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
+              title=f"{modality} images, {compression_format} format")
+
+
 if __name__ == '__main__':
-    metric_per_image(modality="CT", metric="cr")  # for now, displays a line graph
-    # TODO use histogram - quality setting for each bar
+    # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
+    metric_per_quality(modality="CT", metric="ds", compression_format="webp")
