@@ -3,7 +3,6 @@
     Extracts the image from the DICOM file (assuming only one frame is present)
     and writes it in the dataset {parameters.DATASET_PATH} in the image format {parameters.LOSSLESS_EXTENSION}.
 """
-# TODO deprecate .tiff generation for multi-frame images (since webp doesn't support more than 1 frame)
 
 import os
 
@@ -12,6 +11,7 @@ import numpy as np
 from PIL import Image, ImageSequence
 from pydicom import dcmread, FileDataset
 from pydicom.tag import BaseTag
+from pydicom.valuerep import VR
 
 from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 # TODO Go get Dicom files w/ various color-spaces
@@ -24,7 +24,7 @@ PHOTOMETRIC_INTERPRETATION_TAG = BaseTag(0x0028_0004)  # ColourSpace
 SAMPLES_PER_PIXEL_TAG = BaseTag(0x0028_0002)
 PIXEL_DATA_TAG = BaseTag(0xfeff_00e0)
 PIXEL_DATA_TAG_2 = BaseTag(0x7fe0_0010)
-NUMBER_OF_FRAMES = BaseTag(0x0028_0008)
+NUMBER_OF_FRAMES_TAG = BaseTag(0x0028_0008)
 
 
 def parse_dcm(filepath: str):
@@ -41,10 +41,11 @@ def parse_dcm(filepath: str):
     file_data: FileDataset = dcmread(filepath)
 
     # Extract metadata for output file naming
-    modality = file_data[MODALITY_TAG]
+    if file_data.get(BODY_PART_TAG) is None:
+        file_data.add_new(BODY_PART_TAG, VR.CS, "NA")
     body_part = file_data[BODY_PART_TAG]
-    bps = file_data[STORED_BITS_TAG]  # bits per sample TODO be careful, since the bpp at the main pipeline is based on
-    #                                                      the max pixel value, different from how it is obtained here
+    modality = file_data[MODALITY_TAG]
+    bps = file_data[STORED_BITS_TAG]
     samples_per_pixel = file_data[SAMPLES_PER_PIXEL_TAG]
     color_space = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
 
@@ -53,7 +54,7 @@ def parse_dcm(filepath: str):
     # Read the pixel data
     img_array = file_data.pixel_array
 
-    number_of_frames = file_data.get(NUMBER_OF_FRAMES)
+    number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
     if number_of_frames is not None:
         number_of_frames = number_of_frames.value
     else:
@@ -164,12 +165,15 @@ if __name__ == "__main__":
 
     # Get all dicom files (hardcoded)
     for filename in os.listdir(raw_dataset):
-        dirs.append(raw_dataset + filename)
+        dirs.append(filename)
 
     # Empty the images/dataset directory
-    for file in os.listdir("images/dataset"):
-        os.remove(f"images/dataset/{file}")
+    for file in os.listdir(DATASET_PATH):
+        os.remove(DATASET_PATH+file)
 
     # Call a function to parse each dicom file
     for dcm_file in dirs:
-        parse_dcm(filepath=dcm_file)
+        # TODO delete this if statement before closing the branch (new/colorized)
+        if dcm_file.startswith("I_0"):
+            continue  # Ignore working files
+        parse_dcm(filepath=raw_dataset+dcm_file)
