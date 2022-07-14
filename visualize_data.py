@@ -25,7 +25,6 @@ UNITS = dict(
     ds="MP/s", cs="MP/s"
 )
 
-
 def draw_lines(x: list[float], y: list[float],
                x_label: str = "", y_label: str = "", title: str = ""):
     """Draws a graph given a list of x and y values
@@ -113,7 +112,6 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     @param y_label: Label for the y-axis
     @param title: Graph title
     """
-
     # Sort the bars
     dict_unsorted = {keys[i]: (values[i], errs[i]) for i in range(len(keys))}
     dict_sorted = dict(sorted(dict_unsorted.items(), key=lambda x: x[0], reverse=False))
