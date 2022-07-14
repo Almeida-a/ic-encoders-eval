@@ -110,7 +110,7 @@ def timed_command(stdin: str) -> float:
     # Execute command and time the CT
     start = time.time()
     p = Popen(stdin, shell=True, stdout=PIPE, stderr=PIPE)
-    _, stderr = p.communicate(timeout=120)
+    _, stderr = p.communicate(timeout=180)
     ct = time.time() - start  # or extract_webp_ct(stderr)
     # Check for errors
     return_code: int = p.returncode

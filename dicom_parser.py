@@ -67,7 +67,7 @@ def parse_dcm(filepath: str):
             number_of_frames = 1
 
     # Set image path where it will be written on
-    attributes = '_'.join([str(elem) for elem in (color_space.value,
+    attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
                                                   samples_per_pixel.value, bps.value, number_of_frames)])
     out_img_path: str = DATASET_PATH + f"{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 

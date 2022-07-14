@@ -34,11 +34,3 @@ DEFAULTS = dict(
     avif=dict(quality=80., speed=4),
     webp=dict(quality=75., effort=4)
 )
-
-# Quality metrics dict
-# Serves as a "database" holding the
-#   image quality evaluating metrics and the respective functions reference
-# TODO (low prio.) use this on the procedure instead of hard coding the metrics
-qmetrics = dict(
-    mse=metrics.custom_mse, psnr=metrics.custom_psnr, ssim=metrics.ssim
-)
