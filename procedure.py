@@ -8,7 +8,7 @@
 import json
 import os.path
 from functools import partial
-from typing import Callable
+from typing import Callable, Type
 
 import cv2
 import numpy as np
@@ -17,7 +17,7 @@ import pandas as pd
 import custom_apng
 import metrics
 from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH
+    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
     timed_command, total_pixels, original_basename, rm_encoded
 
@@ -254,10 +254,18 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
         decoded_image = cv2.imread(decoded_path, cv2.IMREAD_UNCHANGED)
         og_image = cv2.imread(og_image_path, cv2.IMREAD_UNCHANGED)
 
+    decoded_image = decoded_image.astype(np.uint16)
+    og_image = og_image.astype(np.uint16)
+
     # Evaluate the quality of the resulting image
-    mse: float = metrics.mse(og_image, decoded_image)
-    psnr: float = metrics.psnr(og_image, decoded_image)
-    ssim: float = metrics.custom_ssim(og_image, decoded_image.astype(np.uint16))
+    mse: float = metrics.custom_mse(og_image, decoded_image)
+    if mse != .0:
+        psnr: float = metrics.custom_psnr(og_image, decoded_image,
+                                          bits_per_sample=int(dataset_img_info(og_image_path, BITS_PER_SAMPLE)))
+    else:
+        psnr = float("inf")
+    ssim: float = metrics.custom_ssim(og_image, decoded_image,
+                                      color=int(dataset_img_info(og_image_path, SAMPLES_PER_PIXEL)) > 1)
 
     return cr, ds, mse, psnr, ssim
 
@@ -512,7 +520,14 @@ def squeeze_data():
     """
 
     # Read csv to df
-    df = pd.read_csv(PROCEDURE_RESULTS_FILE + ".csv")
+    ordered_proc_res = list(filter(
+        lambda file: file.startswith(PROCEDURE_RESULTS_FILE) and file.endswith(".csv"),
+        os.listdir())
+    )
+    ordered_proc_res.sort()
+    latest_procedure_results = ordered_proc_res[-1]
+
+    df = pd.read_csv(latest_procedure_results)
 
     # Aggregate the results to a dict
     resume: dict[str, dict[str, dict[str, dict[str, float]]]] = dict()
@@ -542,10 +557,13 @@ def squeeze_data():
                 if metric == "filename":
                     continue
 
+                mean = fname_df[metric].mean()
+                std = fname_df[metric].std() if mean != float("inf") else 0
+
                 resume[settings][modality][metric] = dict(
                     min=fname_df[metric].min(), max=fname_df[metric].max(),
-                    avg=np.average(fname_df[metric]),
-                    std=np.std(fname_df[metric])
+                    avg=mean,
+                    std=std
                 )
 
     # Save dict to a json
@@ -558,5 +576,5 @@ if __name__ == '__main__':
 
     rm_encoded()
 
-    bulk_compress(jxl=False, avif=False, webp=True)
+    # bulk_compress(jxl=True, avif=True, webp=True)
     squeeze_data()

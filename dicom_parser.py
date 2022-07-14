@@ -8,14 +8,14 @@ import os
 
 import cv2
 import numpy as np
-from PIL import Image, ImageSequence
 from pydicom import dcmread, FileDataset
+from pydicom.pixel_data_handlers import convert_color_space
 from pydicom.tag import BaseTag
 from pydicom.valuerep import VR
 
-from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 # TODO Go get Dicom files w/ various color-spaces
 from custom_apng import write_apng
+from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
@@ -53,6 +53,8 @@ def parse_dcm(filepath: str):
 
     # Read the pixel data
     img_array = file_data.pixel_array
+    if not single_channel:
+        img_array = convert_color_space(img_array, color_space.value, "RGB")
 
     number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
     if number_of_frames is not None:
@@ -65,7 +67,7 @@ def parse_dcm(filepath: str):
             number_of_frames = 1
 
     # Set image path where it will be written on
-    attributes = '_'.join([str(elem) for elem in (color_space.value,
+    attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
                                                   samples_per_pixel.value, bps.value, number_of_frames)])
     out_img_path: str = DATASET_PATH + f"{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 
@@ -115,19 +117,11 @@ def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channe
 
     out_img_path_tiff, out_img_path_apng = [out_img_path.replace(".png", format_) for format_ in (".tiff", ".apng")]
 
-    # Save to tiff
-    assert cv2.imwritemulti(out_img_path_tiff, img_array) is True, "Image writing (multi-frame) failed."
-    frames: list[Image] = ImageSequence.all_frames(Image.open(out_img_path_tiff))
-    saved_img_array_tiff = np.array([np.array(frames[i]) for i in range(img_array.shape[0])])
-
     # Save to apng
     status_, saved_img_array_apng = write_apng(out_img_path_apng, img_array)
     assert status_ is True, "Error writing apng image"
 
-    assert (saved_img_array_tiff == saved_img_array_apng).all(), "Quality loss in either apng " \
-                                                                 "or tiff multi-frame image files."
-
-    return saved_img_array_tiff
+    return saved_img_array_apng
 
 
 def write_single_frame(img_array: np.ndarray, out_img_path: str) -> np.ndarray:

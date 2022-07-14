@@ -25,7 +25,6 @@ UNITS = dict(
     ds="MP/s", cs="MP/s"
 )
 
-
 def draw_lines(x: list[float], y: list[float],
                x_label: str = "", y_label: str = "", title: str = ""):
     """Draws a graph given a list of x and y values
@@ -113,7 +112,6 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     @param y_label: Label for the y-axis
     @param title: Graph title
     """
-
     # Sort the bars
     dict_unsorted = {keys[i]: (values[i], errs[i]) for i in range(len(keys))}
     dict_sorted = dict(sorted(dict_unsorted.items(), key=lambda x: x[0], reverse=False))
@@ -126,7 +124,11 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     plt.title(title.upper())
 
     min_: float = min([values[i] - errs[i] for i in range(len(values))])
-    max_: float = max([values[i] + errs[i] for i in range(len(values))])
+
+    maxes = [values[i] + errs[i] for i in range(len(values))]
+    maxes.remove(float("inf"))
+    max_: float = max(maxes)
+
     plt.ylim(ymax=max_, ymin=min_)
 
     plt.show()
@@ -173,4 +175,5 @@ def metric_per_quality(modality: str, metric: str, compression_format: str,
 
 if __name__ == '__main__':
     # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-    metric_per_quality(modality="CT", metric="ds", compression_format="webp")
+    metric_per_quality(modality="SM", metric="psnr", compression_format="jxl",
+                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_10.json")

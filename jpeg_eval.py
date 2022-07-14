@@ -20,8 +20,10 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+from numpy import ndarray
 from pydicom import dcmread
 
+import dicom_parser
 import metrics
 import parameters
 from parameters import JPEG_EVAL_RESULTS_FILE
@@ -78,7 +80,9 @@ def compress_n_compare():
             encoded_target_path = "images/dataset/tmp.dcm"
 
             # Read input uncompressed image file
-            img: np.ndarray = dcmread(file_path).pixel_array
+            dcm_data = dcmread(file_path)
+            bits_per_sample = dcm_data[dicom_parser.STORED_BITS_TAG]
+            uncompressed_img: ndarray = dcm_data.pixel_array
 
             # Encode input file
             command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
@@ -87,20 +91,23 @@ def compress_n_compare():
             # Read encoded image file
             img_encoded = dcmread(encoded_target_path)
 
-            assert img_encoded.pixel_array.dtype == img.dtype,\
-                f"Unexpected loss of bit depth to {img_encoded.pixel_array.dtype}!"
+            encoded_pixel_array: ndarray = img_encoded.pixel_array
+
+            assert encoded_pixel_array.dtype == uncompressed_img.dtype,\
+                f"Unexpected loss of bit depth to {encoded_pixel_array.dtype}!"
 
             # Get the compressed image size
             img_encoded_size = len(img_encoded.PixelData)
 
             # Calculate dataset_compressed bitstream size
-            og_image_bit_depth = int(dcmread(file_path).pixel_array.dtype.name.split("uint")[1])
-            cr = img.size * og_image_bit_depth / img_encoded_size
+            og_image_bit_depth = int(uncompressed_img.dtype.name.split("uint")[1])
+            cr = uncompressed_img.size * og_image_bit_depth / img_encoded_size
 
             # Calculate the SSIM between the images
-            mse, psnr, ssim = (
-                metric(img, img_encoded.pixel_array) for metric in (metrics.mse, metrics.psnr, metrics.custom_ssim)
+            mse, ssim = (
+                metric(uncompressed_img, encoded_pixel_array) for metric in (metrics.custom_mse, metrics.custom_ssim)
             )
+            psnr = metrics.custom_psnr(uncompressed_img, encoded_pixel_array, bits_per_sample=bits_per_sample.value)
 
             # Write to dataframe
             df = pd.concat([pd.DataFrame(dict(
