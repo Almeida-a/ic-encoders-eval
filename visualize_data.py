@@ -25,6 +25,7 @@ UNITS = dict(
     ds="MP/s", cs="MP/s"
 )
 
+
 def draw_lines(x: list[float], y: list[float],
                x_label: str = "", y_label: str = "", title: str = ""):
     """Draws a graph given a list of x and y values
@@ -126,7 +127,7 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     min_: float = min([values[i] - errs[i] for i in range(len(values))])
 
     maxes = [values[i] + errs[i] for i in range(len(values))]
-    maxes.remove(float("inf"))
+    maxes.remove(float("inf")) if float("inf") in maxes else None
     max_: float = max(maxes)
 
     plt.ylim(ymax=max_, ymin=min_)
@@ -134,12 +135,19 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     plt.show()
 
 
-def metric_per_quality(modality: str, metric: str, compression_format: str,
+def metric_per_quality(modality: str, metric: str, depth: str, spp: str, bps: str,
+                       compression_format: str,
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
+    @todo refactor image filters into kwargs
+    @todo make image filters optional - by default, don't filter (like a wildcard, or a select *)
+
     @param modality:
     @param metric:
+    @param depth:
+    @param spp:
+    @param bps:
     @param compression_format:
     @param raw_data_fname:
     """
@@ -159,7 +167,11 @@ def metric_per_quality(modality: str, metric: str, compression_format: str,
         if not key.endswith(compression_format):
             continue
 
-        stats = value[modality][metric]
+        try:
+            stats = value[modality][depth][spp][bps][metric]
+        except KeyError:
+            print("No data found!")
+            exit(1)
 
         # histogram[quality] = metric.mean
         histogram[key.split("-")[0]] = stats["avg"]
@@ -170,10 +182,11 @@ def metric_per_quality(modality: str, metric: str, compression_format: str,
 
     unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
     draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
-              title=f"{modality} images, {compression_format} format")
+              title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
 
 
 if __name__ == '__main__':
     # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-    metric_per_quality(modality="SM", metric="psnr", compression_format="jxl",
-                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_10.json")
+    metric_per_quality(modality="CT", metric="ssim", depth="1", spp="1", bps="12",
+                       compression_format="jxl",
+                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.json")
