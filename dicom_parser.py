@@ -13,7 +13,6 @@ from pydicom.pixel_data_handlers import convert_color_space
 from pydicom.tag import BaseTag
 from pydicom.valuerep import VR
 
-# TODO Go get Dicom files w/ various color-spaces
 from custom_apng import write_apng
 from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 
@@ -167,7 +166,4 @@ if __name__ == "__main__":
 
     # Call a function to parse each dicom file
     for dcm_file in dirs:
-        # TODO delete this if statement before closing the branch (new/colorized)
-        if dcm_file.startswith("I_0"):
-            continue  # Ignore working files
         parse_dcm(filepath=raw_dataset+dcm_file)

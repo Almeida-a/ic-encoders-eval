@@ -3,12 +3,11 @@
     Evaluates performance for: avif-webp-jxl
 
 """
-# TODO include image properties in the statistics
 
 import json
 import os.path
 from functools import partial
-from typing import Callable, Type
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -17,7 +16,7 @@ import pandas as pd
 import custom_apng
 import metrics
 from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE
+    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
     timed_command, total_pixels, original_basename, rm_encoded
 
@@ -35,7 +34,7 @@ def check_codecs():
 
     Exits program if one does not exist
     """
-    print("Looking for the codecs...\n")
+    print("Looking for the codecs...")
     if os.system("which cavif") != 0 or os.system("which avif_decode") != 0:
         print("AVIF codec not found!")
         exit(1)
@@ -174,15 +173,14 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
         cr: float = os.path.getsize(og_image_path) / os.path.getsize(encoded_path)
     elif encoded_extension in ("webp", "avif") and og_image_path.endswith(".apng"):
         frames_list = filter(
-                lambda file: file.endswith(encoded_extension),
-                os.listdir(DATASET_COMPRESSED_PATH)
-            )
+            lambda file: file.endswith(encoded_extension),
+            os.listdir(DATASET_COMPRESSED_PATH)
+        )
         cr = os.path.getsize(og_image_path) / np.sum(
-            [os.path.getsize(os.path.abspath(DATASET_COMPRESSED_PATH+frame)) for frame in frames_list]
+            [os.path.getsize(os.path.abspath(DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
         )
     else:
-        pass  # TODO print program variables
-        raise AssertionError("Bad state")
+        raise AssertionError("Bad state (use debugger)")
 
     match encoded_extension:
         case "jxl":
@@ -296,11 +294,11 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
             DATASET_COMPRESSED_PATH + frame.replace(f".{encoded_extension}", ".png")
         )
         dt += timed_command(
-            custom_command(decoded_path=frame_names[-1], input_path=DATASET_COMPRESSED_PATH+frame)
+            custom_command(decoded_path=frame_names[-1], input_path=DATASET_COMPRESSED_PATH + frame)
         )
 
         # Either avif or webp store images in multichannel
-        if dataset_img_info(DATASET_COMPRESSED_PATH+frame, SAMPLES_PER_PIXEL) == "1":
+        if dataset_img_info(DATASET_COMPRESSED_PATH + frame, SAMPLES_PER_PIXEL) == "1":
             transcode_gray(frame_names[-1])
 
     # Staple output png frames
@@ -316,7 +314,10 @@ def dataset_img_info(target_image: str, keyword: int) -> str:
     @param keyword: parameter defined attribute (id) to extract
     @return: Attribute value for the image
     """
-    return os.path.basename(target_image).split("_")[keyword]
+    retval = os.path.basename(target_image).split("_")[keyword]
+    if keyword == DEPTH:
+        return retval.replace(".apng", "")
+    return retval
 
 
 def transcode_gray(img_path):
@@ -400,7 +401,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                                     output_path=output_path)
 
                     # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH+target_image)
+                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
                     # Print when finished
                     print("Done!")
@@ -427,7 +428,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                                      quality=quality, speed=speed, output_path=output_path)
 
                     # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH+target_image)
+                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
                     # Print when finished
                     print("Done!")
@@ -455,7 +456,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                                      quality=quality, effort=effort, output_path=output_path)
 
                     # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH+target_image)
+                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
                     # Print when finished
                     print("Done!")
@@ -522,49 +523,69 @@ def squeeze_data():
     # Read csv to df
     ordered_proc_res = list(filter(
         lambda file: file.startswith(PROCEDURE_RESULTS_FILE) and file.endswith(".csv"),
-        os.listdir())
-    )
+        os.listdir()
+    ))
     ordered_proc_res.sort()
     latest_procedure_results = ordered_proc_res[-1]
 
     df = pd.read_csv(latest_procedure_results)
 
     # Aggregate the results to a dict
-    resume: dict[str, dict[str, dict[str, dict[str, float]]]] = dict()
-    # df["filename"] but without the "modality_bodypart_" part
-    settings_list: list = [elem.split("_")[-1] for elem in df["filename"]]
-    # df["filename"] but without the "modality_bodypart_setting" part
-    modality_list: list = [elem.split("_")[0] for elem in df["filename"]]
+    resume = dict()
 
-    for settings in tuple(set(settings_list)):
-        for modality in tuple(set(modality_list)):
-            # Dataframe containing only the data associated to the settings at hand
-            fname_df = df.copy()
-            for i, row in fname_df.iterrows():
-                # If row does not point to specific setting and modality, drop it from df
-                if not row["filename"].endswith(settings) \
-                        or not row["filename"].startswith(modality):
-                    fname_df = fname_df.drop(i)
-            # Create settings and modality entry if none exists
-            if resume.get(settings) is None:
-                resume[settings] = dict()
-            if resume[settings].get(modality) is None:
-                resume[settings][modality] = dict()
+    for _, filename in enumerate(df["filename"]):
+        settings = filename.split("_")[-1]
+        modality = dataset_img_info(filename, MODALITY)
+        depth = dataset_img_info(filename, DEPTH)
+        samples_per_pixel = dataset_img_info(filename, SAMPLES_PER_PIXEL)
+        bits_per_sample = dataset_img_info(filename, BITS_PER_SAMPLE)
 
-            # Gather statistics
-            for metric in df.keys():
-                # Brownfield solution to excluding the filename key
-                if metric == "filename":
-                    continue
+        # Dataframe containing only the data associated to the settings/characteristics at hand
+        fname_df = df.copy()
+        for i, row in fname_df.iterrows():
+            # If row does not fit, drop it from df
+            other_filename = row["filename"]
+            fits: bool = (
+                    other_filename.endswith(settings)
+                    and dataset_img_info(other_filename, MODALITY) == modality
+                    and dataset_img_info(other_filename, DEPTH) == depth
+                    and dataset_img_info(other_filename, SAMPLES_PER_PIXEL) == samples_per_pixel
+                    and dataset_img_info(other_filename, BITS_PER_SAMPLE) == bits_per_sample
+            )
+            if not fits:
+                fname_df = fname_df.drop(i)
 
-                mean = fname_df[metric].mean()
-                std = fname_df[metric].std() if mean != float("inf") else 0
+        # Create settings and modality entry if they don't exist
+        if resume.get(settings) is None:
+            resume[settings] = dict()
+        if resume[settings].get(modality) is None:
+            resume[settings][modality] = dict()
+        if resume[settings][modality].get(depth) is None:
+            resume[settings][modality][depth] = dict()
+        if resume[settings][modality][depth].get(samples_per_pixel) is None:
+            resume[settings][modality][depth][samples_per_pixel] = dict()
+        if resume[settings][modality][depth][samples_per_pixel].get(bits_per_sample) is None:
+            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = dict()
+        else:
+            # Entry has already been filled, skip to avoid re-doing the operations
+            continue
 
-                resume[settings][modality][metric] = dict(
-                    min=fname_df[metric].min(), max=fname_df[metric].max(),
-                    avg=mean,
-                    std=std
-                )
+        entry = resume[settings][modality][depth][samples_per_pixel][bits_per_sample]
+
+        # Gather statistics
+        for metric in df.keys():
+            # Brownfield solution to excluding the filename key
+            if metric in ["filename", "size"]:
+                continue
+
+            mean = np.mean(fname_df[metric])
+            std = np.std(fname_df[metric]) if mean != float("inf") else 0.
+
+            entry[metric] = dict(
+                min=fname_df[metric].min(), max=fname_df[metric].max(),
+                avg=mean, std=std
+            )
+        entry["size"] = fname_df.shape[0]
 
     # Save dict to a json
     out_file = open(original_basename(f"{PROCEDURE_RESULTS_FILE}.json"), "w")
@@ -576,5 +597,5 @@ if __name__ == '__main__':
 
     rm_encoded()
 
-    # bulk_compress(jxl=True, avif=True, webp=True)
+    bulk_compress(jxl=True, avif=True, webp=True)  # TODO there is a bug somewhere around here, bc ssim sometimes 0.0 (virtually impossible regarding a compression) as well as it can be >1
     squeeze_data()
