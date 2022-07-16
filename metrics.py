@@ -96,6 +96,10 @@ def metric_router(img1_: ndarray, img2_: ndarray, metric_func: Callable, **kwarg
     @return:
     """
     assert callable(metric_func), f"Object \"{metric_func}\" is not a function!"
+
+    ndim = len(img1_.shape)
+    is_colored = img1_.shape[-1] in (3, 4)
+
     if metric_func == mse and kwargs != dict():
         raise Warning(f"Keyword arguments: \"{kwargs}\" are not used in MSE metric!")
     elif metric_func == psnr:
@@ -112,15 +116,13 @@ def metric_router(img1_: ndarray, img2_: ndarray, metric_func: Callable, **kwarg
     comparable, error_msg = are_images_comparable(img1_, img2_)
     assert comparable, error_msg
 
-    ndim = len(img1_.shape)
-
-    if ndim == 2 or ndim == 3 and img1_.shape[-1] in (3, 4):
+    if ndim == 2 or ndim == 3 and is_colored:
         # Single frame image (gray-scaled or colored)
         return metric_func(img1_, img2_, **kwargs)
     elif ndim == 4 or ndim == 3:
         # Multi-frame image
-        return np.asarray(
-            [mse(img1_[i], img2_[i]) for i in range(img1_.shape[0])]
+        return np.array(
+            [metric_func(img1_i, img2_i, **kwargs) for img1_i, img2_i in zip(img1_, img2_)]
         ).mean()
     else:
         raise AssertionError(f"Strange image shape: {img1_.shape}")

@@ -34,7 +34,7 @@ def check_codecs():
 
     Exits program if one does not exist
     """
-    print("Looking for the codecs...\n")
+    print("Looking for the codecs...")
     if os.system("which cavif") != 0 or os.system("which avif_decode") != 0:
         print("AVIF codec not found!")
         exit(1)
@@ -523,8 +523,8 @@ def squeeze_data():
     # Read csv to df
     ordered_proc_res = list(filter(
         lambda file: file.startswith(PROCEDURE_RESULTS_FILE) and file.endswith(".csv"),
-        os.listdir())
-    )
+        os.listdir()
+    ))
     ordered_proc_res.sort()
     latest_procedure_results = ordered_proc_res[-1]
 
@@ -533,7 +533,7 @@ def squeeze_data():
     # Aggregate the results to a dict
     resume = dict()
 
-    for filename in df["filename"]:
+    for _, filename in enumerate(df["filename"]):
         settings = filename.split("_")[-1]
         modality = dataset_img_info(filename, MODALITY)
         depth = dataset_img_info(filename, DEPTH)
@@ -575,15 +575,15 @@ def squeeze_data():
         # Gather statistics
         for metric in df.keys():
             # Brownfield solution to excluding the filename key
-            if metric == "filename":
+            if metric in ["filename", "size"]:
                 continue
 
-            mean = fname_df[metric].mean()
+            mean = np.mean(fname_df[metric])
             std = np.std(fname_df[metric]) if mean != float("inf") else 0.
 
             entry[metric] = dict(
                 min=fname_df[metric].min(), max=fname_df[metric].max(),
-                avg=mean, std=std, size=fname_df[metric].size
+                avg=mean, std=std
             )
         entry["size"] = fname_df.shape[0]
 
@@ -597,5 +597,5 @@ if __name__ == '__main__':
 
     rm_encoded()
 
-    bulk_compress(jxl=True, avif=True, webp=True)
+    bulk_compress(jxl=True, avif=True, webp=True)  # TODO there is a bug somewhere around here, bc ssim sometimes 0.0 (virtually impossible regarding a compression) as well as it can be >1
     squeeze_data()

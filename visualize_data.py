@@ -8,6 +8,7 @@
 """
 import json
 import re
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas
@@ -135,8 +136,9 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     plt.show()
 
 
-def metric_per_quality(modality: str, metric: str, depth: str, spp: str, bps: str,
-                       compression_format: str,
+def metric_per_quality(compression_format: str, modality: Optional[str] = None,
+                       metric: Optional[str] = None, depth: Optional[str] = None,
+                       spp: Optional[str] = None, bps: Optional[str] = None,
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
@@ -167,11 +169,8 @@ def metric_per_quality(modality: str, metric: str, depth: str, spp: str, bps: st
         if not key.endswith(compression_format):
             continue
 
-        try:
-            stats = value[modality][depth][spp][bps][metric]
-        except KeyError:
-            print("No data found!")
-            exit(1)
+        stats: dict[str, float] = get_stats(value, bps=bps, depth=depth,
+                                            metric=metric, modality=modality, spp=spp)
 
         # histogram[quality] = metric.mean
         histogram[key.split("-")[0]] = stats["avg"]
@@ -185,8 +184,74 @@ def metric_per_quality(modality: str, metric: str, depth: str, spp: str, bps: st
               title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
 
 
+def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
+              spp: Optional[str], bps: Optional[str],
+              metric: str) -> dict[str, float]:
+    """Extract stats from the procedure_results*.json, allowing wildcard queries
+
+    @param data: Main data to be queried
+    @param modality: Modality of the medical image
+    @param depth: Number of frames of the image
+    @param spp: Samples per pixel
+    @param bps: Bits per sample
+    @param metric: Evaluation parameter
+    @return: Dictionary containing statistics (min/max/avg/dev)
+    """
+    keys: dict[str, list | tuple] = dict()
+
+    keys["modality"] = (*data.keys(),) if modality is None else (modality,)
+
+    keys["depth"] = list(
+        [*data[key_modality_].keys()] for key_modality_ in keys["modality"]
+    ) if depth is None else [depth]
+    keys["depth"] = tuple(set(keys["depth"][0]))
+
+    keys["spp"] = []
+    for key_modality_ in keys["modality"]:
+        for key_depth_ in keys["depth"]:
+            keys["spp"].append(
+                *data[key_modality_][key_depth_].keys()
+                if spp is None else spp
+            )
+    keys["spp"] = tuple(set(keys["spp"]))
+
+    keys["bps"] = []
+    for key_modality_ in keys["modality"]:
+        for key_depth_ in keys["depth"]:
+            for key_spp_ in keys["spp"]:
+                keys["bps"].append(
+                    *data[key_modality_][key_depth_][key_spp_].keys()
+                    if bps is None else bps
+                )
+    keys["bps"] = tuple(set(keys["bps"]))
+
+    result_stats: dict[str, float] = dict(min=float("inf"), max=.0, avg=.0, std=.0)
+
+    total_images: int = 0
+
+    for modality_ in keys["modality"]:
+        for depth_ in keys["depth"]:
+            for spp_ in keys["spp"]:
+                for bps_ in keys["bps"]:
+                    stat = data[modality_][depth_][spp_][bps_]
+
+                    result_stats["avg"] += stat[metric]["avg"] * stat["size"]
+                    result_stats["min"] = min(result_stats["min"], stat[metric]["min"])
+                    result_stats["max"] = max(result_stats["max"], stat[metric]["max"])
+
+                    total_images += stat["size"]
+
+    if total_images == 0:
+        print("No data found!")
+        exit(0)
+
+    result_stats["avg"] /= total_images
+
+    return result_stats
+
+
 if __name__ == '__main__':
     # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
     metric_per_quality(modality="CT", metric="ssim", depth="1", spp="1", bps="12",
                        compression_format="jxl",
-                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.json")
+                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
