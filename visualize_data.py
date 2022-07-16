@@ -16,6 +16,8 @@ import pandas as pd
 
 from parameters import PROCEDURE_RESULTS_FILE
 
+MARGIN = .1  # ylim margin. e.g.: 10% margin
+
 BARS_COLOR = "#007700"
 
 METRICS_DESCRIPTION = dict(
@@ -131,6 +133,9 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     maxes.remove(float("inf")) if float("inf") in maxes else None
     max_: float = max(maxes)
 
+    min_ -= (max_ - min_) * MARGIN
+    max_ += (max_ - min_) * MARGIN
+
     plt.ylim(ymax=max_, ymin=min_)
 
     plt.show()
@@ -201,17 +206,19 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
 
     keys["modality"] = (*data.keys(),) if modality is None else (modality,)
 
-    keys["depth"] = list(
-        [*data[key_modality_].keys()] for key_modality_ in keys["modality"]
-    ) if depth is None else [depth]
-    keys["depth"] = tuple(set(keys["depth"][0]))
+    keys["depth"] = []
+    for key_modality_ in keys["modality"]:
+        keys["depth"].extend(
+            data[key_modality_].keys() if depth is None else [depth]
+        )
+    keys["depth"] = tuple(set(keys["depth"]))
 
     keys["spp"] = []
     for key_modality_ in keys["modality"]:
         for key_depth_ in keys["depth"]:
-            keys["spp"].append(
-                *data[key_modality_][key_depth_].keys()
-                if spp is None else spp
+            keys["spp"].extend(
+                [data[key_modality_][key_depth_].keys()]
+                if spp is None else [spp]
             )
     keys["spp"] = tuple(set(keys["spp"]))
 
@@ -219,9 +226,9 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
     for key_modality_ in keys["modality"]:
         for key_depth_ in keys["depth"]:
             for key_spp_ in keys["spp"]:
-                keys["bps"].append(
-                    *data[key_modality_][key_depth_][key_spp_].keys()
-                    if bps is None else bps
+                keys["bps"].extend(
+                    data[key_modality_][key_depth_][key_spp_].keys()
+                    if bps is None else [bps]
                 )
     keys["bps"] = tuple(set(keys["bps"]))
 
@@ -252,6 +259,6 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
 
 if __name__ == '__main__':
     # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-    metric_per_quality(modality="CT", metric="ssim", depth="1", spp="1", bps="12",
+    metric_per_quality(modality="CT", metric="ds", depth="1", spp="1", bps="12",
                        compression_format="jxl",
                        raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
