@@ -147,9 +147,6 @@ def metric_per_quality(compression_format: str, modality: Optional[str] = None,
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
-    @todo refactor image filters into kwargs
-    @todo make image filters optional - by default, don't filter (like a wildcard, or a select *)
-
     @param modality:
     @param metric:
     @param depth:
