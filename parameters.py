@@ -34,3 +34,9 @@ DEFAULTS = dict(
     avif=dict(quality=80., speed=4),
     webp=dict(quality=75., effort=4)
 )
+
+# Quality configs
+MINIMUM_WEBP_QUALITY = 80
+MINIMUM_AVIF_QUALITY = 80
+MAXIMUM_JXL_DISTANCE = 1.0
+QUALITY_TOTAL_STEPS: int = 2

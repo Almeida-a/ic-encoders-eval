@@ -16,7 +16,8 @@ import pandas as pd
 import custom_apng
 import metrics
 from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH
+    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
+    QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
     timed_command, total_pixels, original_basename, rm_encoded
 
@@ -360,10 +361,9 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
-    spread: int = 2
-    quality_param_jxl: np.ndarray = np.linspace(.0, 3.0, spread)
-    quality_param_avif = range(1, 101, int(100 / spread))
-    quality_param_webp = range(1, 101, int(100 / spread))
+    quality_param_jxl: np.ndarray = np.linspace(.0, MAXIMUM_JXL_DISTANCE, QUALITY_TOTAL_STEPS)
+    quality_param_avif = range(MINIMUM_AVIF_QUALITY, 101, int(100 / QUALITY_TOTAL_STEPS))
+    quality_param_webp = range(MINIMUM_WEBP_QUALITY, 101, int(100 / QUALITY_TOTAL_STEPS))
 
     # Set effort/speed parameters for compression (common step)
     effort_jxl = (7,)
@@ -597,5 +597,5 @@ if __name__ == '__main__':
 
     rm_encoded()
 
-    bulk_compress(jxl=True, avif=True, webp=True)  # TODO there is a bug somewhere around here, bc ssim sometimes 0.0 (virtually impossible regarding a compression) as well as it can be >1
+    bulk_compress(jxl=True, avif=True, webp=True)
     squeeze_data()
