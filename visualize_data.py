@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt
 import pandas
 import pandas as pd
 
-from parameters import PROCEDURE_RESULTS_FILE
+from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE
+from util import dataset_img_info
 
 MARGIN = .1  # ylim margin. e.g.: 10% margin
 
@@ -254,8 +255,61 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
     return result_stats
 
 
+def metric_per_metric(x_metric: str, y_metric: str, modality: Optional[str],
+                      depth: Optional[str], spp: Optional[str], bps: Optional[str],
+                      compression_format: Optional[str], raw_data_fname: str):
+    """Pair metrics with metrics and show relationship using a line graph
+
+    @param x_metric:
+    @param y_metric:
+    @param modality:
+    @param depth:
+    @param spp:
+    @param bps:
+    @param compression_format:
+    @param raw_data_fname:
+    """
+    x_metric, y_metric = x_metric.lower(), y_metric.lower()
+    modality = modality.upper()
+
+    df = pd.read_csv(raw_data_fname)
+
+    # Filter rows
+    for i, row in df.iterrows():
+        row_filename_ = row["filename"]
+        if modality not in [dataset_img_info(row_filename_, MODALITY), None]\
+                or depth not in [dataset_img_info(row_filename_, DEPTH), None]\
+                or spp not in [dataset_img_info(row_filename_, SAMPLES_PER_PIXEL), None]\
+                or bps not in [dataset_img_info(row_filename_, BITS_PER_SAMPLE), None]\
+                or (row_filename_.endswith(f".{compression_format}") or row_filename_ is None):
+            df = df.drop(index=i)
+
+    x, y = df[x_metric], df[y_metric]
+
+    zipped = list(zip(x, y))
+    zipped = sorted(zipped, key=lambda elem: elem[0])  # Sort by the x-axis
+
+    x, y = list(zip(*zipped))
+
+    draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
+               title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
+
+
 if __name__ == '__main__':
-    # metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-    metric_per_quality(modality="CT", metric="ds", depth="1", spp="1", bps="12",
-                       compression_format="jxl",
-                       raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
+    EVALUATE = "metric"
+
+    match EVALUATE:
+        case "image":
+            metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
+        case "quality":
+            metric_per_quality(modality="CT", metric="ds", depth="1", spp="1", bps="12",
+                               compression_format="jxl",
+                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
+
+        case "metric":
+            metric_per_metric(x_metric="ssim", y_metric="cs",
+                              modality="CT", depth="1", spp="1", bps="12",
+                              compression_format="avif",
+                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_1.csv")
+
+

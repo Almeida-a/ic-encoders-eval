@@ -19,7 +19,7 @@ from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH,
     DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
     QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
-    timed_command, total_pixels, original_basename, rm_encoded
+    timed_command, total_pixels, original_basename, rm_encoded, dataset_img_info
 
 """
     Codecs' versions
@@ -306,19 +306,6 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
     assert custom_apng.staple_pngs(decoded_path, *frame_names) is True, "Error joining PNGs"
 
     return dt
-
-
-def dataset_img_info(target_image: str, keyword: int) -> str:
-    """Extract the information present in the names of the pre-processed dataset
-
-    @param target_image: Path to the image which name is to be evaluated
-    @param keyword: parameter defined attribute (id) to extract
-    @return: Attribute value for the image
-    """
-    retval = os.path.basename(target_image).split("_")[keyword]
-    if keyword == DEPTH:
-        return retval.replace(".apng", "")
-    return retval
 
 
 def transcode_gray(img_path):

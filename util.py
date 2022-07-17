@@ -9,7 +9,7 @@ from subprocess import Popen, PIPE
 import cv2
 
 from custom_apng import get_apng_frames_resolution, get_apng_depth
-from parameters import DATASET_COMPRESSED_PATH
+from parameters import DATASET_COMPRESSED_PATH, DEPTH
 
 
 def construct_djxl(decoded_path, target_image):
@@ -176,3 +176,16 @@ def rm_encoded():
     """
     for file in os.listdir(DATASET_COMPRESSED_PATH):
         os.remove(os.path.abspath(DATASET_COMPRESSED_PATH + file))
+
+
+def dataset_img_info(target_image: str, keyword: int) -> str:
+    """Extract the information present in the names of the pre-processed dataset
+
+    @param target_image: Path to the image which name is to be evaluated
+    @param keyword: parameter defined attribute (id) to extract
+    @return: Attribute value for the image
+    """
+    retval = os.path.basename(target_image).split("_")[keyword]
+    if keyword == DEPTH:
+        return retval.replace(".apng", "")
+    return retval
