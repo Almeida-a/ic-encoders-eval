@@ -10,9 +10,10 @@ medical imaging.
 2. [Usage Guide](#usage-guide)
    1. [Setting up](#setting-up)
       1. [Hardware Requirements](#hardware-requirements)
-      2. [For x86_64 architectures](#for-x86_64-architectures)
-      3. [Other Architectures](#other-architectures)
-      4. [Dataset](#dataset)
+      2. [Dependencies](#dependencies)
+      3. [For x86_64 architectures](#for-x86_64-architectures)
+      4. [Other Architectures](#other-architectures)
+      5. [Dataset](#dataset)
    2. [Running](#running)
 
 ## About
@@ -40,6 +41,12 @@ This project is aimed to evaluate the most recent image compression formats.
 Currently, this software only works on *Linux* machines that have the
 aforementioned codecs installed. See #set-up for how to set up
 your machine.
+
+#### Dependencies
+
+```shell
+sudo apt install dcmtk
+```
 
 #### For x86_64 architectures
 

@@ -25,13 +25,12 @@ from pydicom import dcmread
 
 import dicom_parser
 import metrics
-import parameters
-from parameters import JPEG_EVAL_RESULTS_FILE
+from parameters import JPEG_EVAL_RESULTS_FILE, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, DATASET_PATH
 
 QUALITY_SPREAD: int = 1
 # Quality settings
-QUALITY_VALUES: np.ndarray = np.linspace(1, 100, QUALITY_SPREAD)
-# Where the raw/processed results of the experiment are written on
+QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS)\
+    .astype(np.ubyte)
 
 
 def images(ext: str) -> str:
@@ -74,10 +73,11 @@ def compress_n_compare():
     df = pd.DataFrame(data=dict(fname=[], cr=[], mse=[], psnr=[], ssim=[]))
     for file_path in images(".dcm"):
         file_name: str = os.path.basename(file_path)
-        for quality in QUALITY_VALUES:
-            quality = int(quality)
 
-            encoded_target_path = "images/dataset/tmp.dcm"
+        print(f"Evaluating {file_name}", end="...")
+        for quality in QUALITY_VALUES:
+
+            encoded_target_path = f"{DATASET_PATH}tmp.dcm"
 
             # Read input uncompressed image file
             dcm_data = dcmread(file_path)
@@ -117,13 +117,21 @@ def compress_n_compare():
                 psnr=[psnr],
                 ssim=[ssim]
             )), df])
+
+        print("Done!")
     df.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
 
 
 def exec_cmd(command):
+    """
+
+    @param command:
+    """
     p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
     p.communicate(timeout=15)
-    assert p.returncode == 0, f"Error status {p.returncode} executing the following command: \"{command}\""
+    if p.returncode != 0:
+        print(f"Error status {p.returncode} executing the following command: \"{command}\"")
+        exit(1)
 
 
 def squeeze_stats(csv_file_path: str):
@@ -153,7 +161,7 @@ def squeeze_stats(csv_file_path: str):
         # Set up new entry in stat dict
         stats[f"q{quality_val}"] = dict()
 
-        for metric in (*parameters.qmetrics.keys(), "cr"):
+        for metric in ("mse", "psnr", "ssim", "cr"):
             # Write stats in dict
             metric_vals: List[float] = sub_df[metric]
             stats[f"q{quality_val}"][metric] = dict(
@@ -166,6 +174,17 @@ def squeeze_stats(csv_file_path: str):
     json.dump(stats, out_file, indent=6)
 
 
+def check_deps():
+    """Verifies the existence of dependencies
+
+    """
+    if os.system("which dcmcjpeg") != 0:
+        print(f"dcmtk not found!")
+        exit(1)
+
+
 if __name__ == '__main__':
+    check_deps()
+
     compress_n_compare()
     squeeze_stats(f"{JPEG_EVAL_RESULTS_FILE}.csv")

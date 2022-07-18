@@ -349,8 +349,8 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
     quality_param_jxl: np.ndarray = np.linspace(.0, MAXIMUM_JXL_DISTANCE, QUALITY_TOTAL_STEPS)
-    quality_param_avif = range(MINIMUM_AVIF_QUALITY, 101, int(100 / QUALITY_TOTAL_STEPS))
-    quality_param_webp = range(MINIMUM_WEBP_QUALITY, 101, int(100 / QUALITY_TOTAL_STEPS))
+    quality_param_avif = np.linspace(MINIMUM_AVIF_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
+    quality_param_webp = np.linspace(MINIMUM_WEBP_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
 
     # Set effort/speed parameters for compression (common step)
     effort_jxl = (7,)

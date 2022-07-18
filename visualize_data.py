@@ -311,5 +311,6 @@ if __name__ == '__main__':
                               modality="CT", depth="1", spp="1", bps="12",
                               compression_format="avif",
                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_1.csv")
-
-
+        case _:
+            print("Invalid settings!")
+            exit(1)
