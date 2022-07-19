@@ -255,22 +255,24 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
     return result_stats
 
 
-def metric_per_metric(x_metric: str, y_metric: str, modality: Optional[str],
-                      depth: Optional[str], spp: Optional[str], bps: Optional[str],
-                      compression_format: Optional[str], raw_data_fname: str):
+def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
+                      modality: Optional[str] = None, depth: Optional[str] = None,
+                      spp: Optional[str] = None, bps: Optional[str] = None,
+                      compression_format: Optional[str] = None):
     """Pair metrics with metrics and show relationship using a line graph
 
     @param x_metric:
     @param y_metric:
+    @param raw_data_fname:
     @param modality:
     @param depth:
     @param spp:
     @param bps:
     @param compression_format:
-    @param raw_data_fname:
     """
     x_metric, y_metric = x_metric.lower(), y_metric.lower()
-    modality = modality.upper()
+    if modality is not None:
+        modality = modality.upper()
 
     df = pd.read_csv(raw_data_fname)
 
@@ -297,20 +299,24 @@ def metric_per_metric(x_metric: str, y_metric: str, modality: Optional[str],
 
 if __name__ == '__main__':
     EVALUATE = "metric"
+    EXPERIMENT = "jpeg"  # main or jpeg
 
-    match EVALUATE:
-        case "image":
+    match EVALUATE, EXPERIMENT:
+        case "image", "main":
             metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-        case "quality":
+        case "quality", "main":
             metric_per_quality(modality="CT", metric="ds", depth="1", spp="1", bps="12",
                                compression_format="jxl",
                                raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
 
-        case "metric":
-            metric_per_metric(x_metric="ssim", y_metric="cs",
-                              modality="CT", depth="1", spp="1", bps="12",
-                              compression_format="avif",
-                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_1.csv")
+        case "metric", "main":
+            metric_per_metric(x_metric="ssim", y_metric="cr",
+                              modality="CT", depth="1", spp="1", bps=None,
+                              compression_format="jxl",
+                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
+        case "metric", "jpeg":
+            metric_per_metric(x_metric="ssim", y_metric="cr",
+                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
         case _:
             print("Invalid settings!")
             exit(1)

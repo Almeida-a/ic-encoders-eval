@@ -25,11 +25,12 @@ from pydicom import dcmread
 
 import dicom_parser
 import metrics
+from dicom_parser import extract_attributes
 from parameters import JPEG_EVAL_RESULTS_FILE, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, DATASET_PATH
 
 QUALITY_SPREAD: int = 1
 # Quality settings
-QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS)\
+QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS) \
     .astype(np.ubyte)
 
 
@@ -55,7 +56,7 @@ def images(ext: str) -> str:
         if file.endswith(ext) or ext == ".dcm":
             # If we are looking for the dicom files, the extensions might not be there, but we know they are
             #   in that prefix/dir, thus no verification needed
-            yield prefix+file
+            yield prefix + file
 
 
 def compress_n_compare():
@@ -76,13 +77,17 @@ def compress_n_compare():
 
         print(f"Evaluating {file_name}", end="...")
         for quality in QUALITY_VALUES:
-
-            encoded_target_path = f"{DATASET_PATH}tmp.dcm"
+            dcm_data = dcmread(file_path)
 
             # Read input uncompressed image file
-            dcm_data = dcmread(file_path)
-            bits_per_sample = dcm_data[dicom_parser.STORED_BITS_TAG]
             uncompressed_img: ndarray = dcm_data.pixel_array
+
+            body_part, bits_per_sample, color_space, modality, samples_per_pixel = extract_attributes(dcm_data)
+            nframes: int = dicom_parser.get_number_of_frames(dcm_data, uncompressed_img.shape,
+                                                             single_channel=samples_per_pixel == 1)
+
+            encoded_target_path = f"{DATASET_PATH}{modality.value}_{body_part.value}_" \
+                                  f"{nframes}_{samples_per_pixel.value}_{bits_per_sample.value}.dcm"
 
             # Encode input file
             command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
@@ -93,7 +98,7 @@ def compress_n_compare():
 
             encoded_pixel_array: ndarray = img_encoded.pixel_array
 
-            assert encoded_pixel_array.dtype == uncompressed_img.dtype,\
+            assert encoded_pixel_array.dtype == uncompressed_img.dtype, \
                 f"Unexpected loss of bit depth to {encoded_pixel_array.dtype}!"
 
             # Get the compressed image size
@@ -111,7 +116,7 @@ def compress_n_compare():
 
             # Write to dataframe
             df = pd.concat([pd.DataFrame(dict(
-                fname=[f"{file_name}_q{quality}"],
+                fname=[f"{os.path.basename(encoded_target_path)}_q{quality}"],
                 cr=[cr],
                 mse=[mse],
                 psnr=[psnr],
