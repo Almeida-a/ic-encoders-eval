@@ -8,7 +8,7 @@ import os
 
 import cv2
 import numpy as np
-from pydicom import dcmread, FileDataset
+from pydicom import dcmread, FileDataset, DataElement
 from pydicom.pixel_data_handlers import convert_color_space
 from pydicom.tag import BaseTag
 from pydicom.valuerep import VR
@@ -39,14 +39,7 @@ def parse_dcm(filepath: str):
     # Read file
     file_data: FileDataset = dcmread(filepath)
 
-    # Extract metadata for output file naming
-    if file_data.get(BODY_PART_TAG) is None:
-        file_data.add_new(BODY_PART_TAG, VR.CS, "NA")
-    body_part = file_data[BODY_PART_TAG]
-    modality = file_data[MODALITY_TAG]
-    bps = file_data[STORED_BITS_TAG]
-    samples_per_pixel = file_data[SAMPLES_PER_PIXEL_TAG]
-    color_space = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
+    body_part, bps, color_space, modality, samples_per_pixel = extract_attributes(file_data)
 
     single_channel: bool = samples_per_pixel.value == 1
 
@@ -55,15 +48,7 @@ def parse_dcm(filepath: str):
     if not single_channel:
         img_array = convert_color_space(img_array, color_space.value, "RGB")
 
-    number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
-    if number_of_frames is not None:
-        number_of_frames = number_of_frames.value
-    else:
-        # When the info on # of frames is on the dicom metadata
-        if single_channel and len(img_array.shape) == 3 or len(img_array.shape) == 4:
-            number_of_frames = img_array.shape[0]
-        else:
-            number_of_frames = 1
+    number_of_frames = get_number_of_frames(file_data, img_array.shape, single_channel)
 
     # Set image path where it will be written on
     attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
@@ -97,6 +82,46 @@ def parse_dcm(filepath: str):
         os.remove(out_img_path)
         # Warn the user of the issue
         raise AssertionError(f"Quality loss accidentally applied to the image \"{out_img_path}\"!")
+
+
+def get_number_of_frames(file_data: FileDataset, img_shape: tuple, single_channel: bool) -> int:
+    """Extract number of frames of image from dicom file
+
+    @param file_data:
+    @param img_shape:
+    @param single_channel:
+    @return:
+    """
+    ndim = len(img_shape)
+
+    number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
+    if number_of_frames is not None:
+        number_of_frames = number_of_frames.value
+    else:
+        # When the info on # of frames is not on the dicom metadata
+        if single_channel and ndim == 3 or ndim == 4:
+            number_of_frames = img_shape[0]
+        else:
+            number_of_frames = 1
+    return number_of_frames
+
+
+def extract_attributes(file_data: FileDataset)\
+        -> tuple[DataElement, DataElement, DataElement, DataElement, DataElement]:
+    """Extract main attributes from dicom file
+
+    @param file_data:
+    @return:
+    """
+    # Extract metadata for output file naming
+    if file_data.get(BODY_PART_TAG) is None:
+        file_data.add_new(BODY_PART_TAG, VR.CS, "NA")
+    body_part: DataElement = file_data[BODY_PART_TAG]
+    modality: DataElement = file_data[MODALITY_TAG]
+    bps: DataElement = file_data[STORED_BITS_TAG]
+    samples_per_pixel: DataElement = file_data[SAMPLES_PER_PIXEL_TAG]
+    color_space: DataElement = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
+    return body_part, bps, color_space, modality, samples_per_pixel
 
 
 def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channel: bool):
@@ -154,6 +179,9 @@ def exec_shell(command: str):
 if __name__ == "__main__":
     # Specify the directory where the dicom files are
     raw_dataset: str = "images/dataset_dicom/"
+    if not os.path.exists(raw_dataset):
+        os.makedirs(raw_dataset)
+
     dirs: list[str] = []
 
     # Get all dicom files (hardcoded)
@@ -162,8 +190,8 @@ if __name__ == "__main__":
 
     # Empty the images/dataset directory
     for file in os.listdir(DATASET_PATH):
-        os.remove(DATASET_PATH+file)
+        os.remove(DATASET_PATH + file)
 
     # Call a function to parse each dicom file
     for dcm_file in dirs:
-        parse_dcm(filepath=raw_dataset+dcm_file)
+        parse_dcm(filepath=raw_dataset + dcm_file)

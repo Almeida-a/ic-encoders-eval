@@ -4,7 +4,6 @@
 
 """
 
-import json
 import os.path
 from functools import partial
 from typing import Callable
@@ -16,15 +15,16 @@ import pandas as pd
 import custom_apng
 import metrics
 from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
+    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
     QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
+from squeeze import squeeze_data
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
     timed_command, total_pixels, original_basename, rm_encoded, dataset_img_info
 
 """
     Codecs' versions
-        cjxl, djxl -> v0.6.1
-        cwebp, dwebp -> v0.4.1
+        cjxl, djxl -> v0.7.0 -- ae95f45
+        cwebp, dwebp -> v1.2.1
         cavif -> v1.3.4
         avif_decode -> 0.2.2
 """
@@ -499,90 +499,16 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     return outfile_name, output_path
 
 
-def squeeze_data():
-    """ Digests raw compression stats into condensed stats.
-
-    Condensed stats:
-     * are min/max/avg/std per modality, per body-part and per encoding format.
-     * data is saved under {parameters.PROCEDURE_RESULTS_FILE}.json
-    """
-
-    # Read csv to df
-    ordered_proc_res = list(filter(
-        lambda file: file.startswith(PROCEDURE_RESULTS_FILE) and file.endswith(".csv"),
-        os.listdir()
-    ))
-    ordered_proc_res.sort()
-    latest_procedure_results = ordered_proc_res[-1]
-
-    df = pd.read_csv(latest_procedure_results)
-
-    # Aggregate the results to a dict
-    resume = dict()
-
-    for _, filename in enumerate(df["filename"]):
-        settings = filename.split("_")[-1]
-        modality = dataset_img_info(filename, MODALITY)
-        depth = dataset_img_info(filename, DEPTH)
-        samples_per_pixel = dataset_img_info(filename, SAMPLES_PER_PIXEL)
-        bits_per_sample = dataset_img_info(filename, BITS_PER_SAMPLE)
-
-        # Dataframe containing only the data associated to the settings/characteristics at hand
-        fname_df = df.copy()
-        for i, row in fname_df.iterrows():
-            # If row does not fit, drop it from df
-            other_filename = row["filename"]
-            fits: bool = (
-                    other_filename.endswith(settings)
-                    and dataset_img_info(other_filename, MODALITY) == modality
-                    and dataset_img_info(other_filename, DEPTH) == depth
-                    and dataset_img_info(other_filename, SAMPLES_PER_PIXEL) == samples_per_pixel
-                    and dataset_img_info(other_filename, BITS_PER_SAMPLE) == bits_per_sample
-            )
-            if not fits:
-                fname_df = fname_df.drop(i)
-
-        # Create settings and modality entry if they don't exist
-        if resume.get(settings) is None:
-            resume[settings] = dict()
-        if resume[settings].get(modality) is None:
-            resume[settings][modality] = dict()
-        if resume[settings][modality].get(depth) is None:
-            resume[settings][modality][depth] = dict()
-        if resume[settings][modality][depth].get(samples_per_pixel) is None:
-            resume[settings][modality][depth][samples_per_pixel] = dict()
-        if resume[settings][modality][depth][samples_per_pixel].get(bits_per_sample) is None:
-            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = dict()
-        else:
-            # Entry has already been filled, skip to avoid re-doing the operations
-            continue
-
-        entry = resume[settings][modality][depth][samples_per_pixel][bits_per_sample]
-
-        # Gather statistics
-        for metric in df.keys():
-            # Brownfield solution to excluding the filename key
-            if metric in ["filename", "size"]:
-                continue
-
-            mean = np.mean(fname_df[metric])
-            std = np.std(fname_df[metric]) if mean != float("inf") else 0.
-
-            entry[metric] = dict(
-                min=fname_df[metric].min(), max=fname_df[metric].max(),
-                avg=mean, std=std
-            )
-        entry["size"] = fname_df.shape[0]
-
-    # Save dict to a json
-    out_file = open(original_basename(f"{PROCEDURE_RESULTS_FILE}.json"), "w")
-    json.dump(resume, out_file, indent=4)
-
-
 if __name__ == '__main__':
     check_codecs()
+
+    # Create paths
+    if not os.path.exists(DATASET_PATH):
+        os.makedirs(DATASET_PATH)
+    if not os.path.exists(DATASET_COMPRESSED_PATH):
+        os.makedirs(DATASET_COMPRESSED_PATH)
 
     rm_encoded()
 
     bulk_compress(jxl=True, avif=True, webp=True)
-    squeeze_data()
+    squeeze_data(PROCEDURE_RESULTS_FILE)
