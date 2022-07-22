@@ -8,14 +8,17 @@
 """
 import json
 import re
-from typing import Optional
+from enum import Enum
 
 import matplotlib.pyplot as plt
 import pandas
 import pandas as pd
 
-from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE
+from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE, \
+    JPEG_EVAL_RESULTS_FILE
 from util import dataset_img_info
+
+WILDCARD: str = "*"
 
 MARGIN = .1  # ylim margin. e.g.: 10% margin
 
@@ -137,14 +140,17 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     min_ -= (max_ - min_) * MARGIN
     max_ += (max_ - min_) * MARGIN
 
-    plt.ylim(ymax=max_, ymin=min_)
+    plt.ylim(
+        ymax=max_,
+        ymin=max(min_, 0)  # No metric falls bellow 0
+    )
 
     plt.show()
 
 
-def metric_per_quality(compression_format: str, modality: Optional[str] = None,
-                       metric: Optional[str] = None, depth: Optional[str] = None,
-                       spp: Optional[str] = None, bps: Optional[str] = None,
+def metric_per_quality(compression_format: str, metric: str,
+                       modality: str = WILDCARD, depth: str = WILDCARD,
+                       spp: str = WILDCARD, bps: str = WILDCARD,
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
@@ -176,20 +182,26 @@ def metric_per_quality(compression_format: str, modality: Optional[str] = None,
                                             metric=metric, modality=modality, spp=spp)
 
         # histogram[quality] = metric.mean
-        histogram[key.split("-")[0]] = stats["avg"]
+        quality = key.split("-")[0]
+        quality = quality.replace("q", "d") if compression_format == "jxl" else quality
 
-        qualities.append(key.split("-")[0])
+        histogram[quality] = stats["avg"]
+
+        qualities.append(quality)
         avg.append(stats["avg"])
         std.append(stats["std"])
+
+    if histogram == dict():
+        print("No data found with the specified parameters!")
+        exit(1)
 
     unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
     draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
               title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
 
 
-def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
-              spp: Optional[str], bps: Optional[str],
-              metric: str) -> dict[str, float]:
+def get_stats(data: dict, modality: str, depth: str,
+              spp: str, bps: str, metric: str) -> dict[str, float]:
     """Extract stats from the procedure_results*.json, allowing wildcard queries
 
     @param data: Main data to be queried
@@ -202,12 +214,12 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
     """
     keys: dict[str, list | tuple] = dict()
 
-    keys["modality"] = (*data.keys(),) if modality is None else (modality,)
+    keys["modality"] = (*data.keys(),) if modality == WILDCARD else (modality,)
 
     keys["depth"] = []
     for key_modality_ in keys["modality"]:
         keys["depth"].extend(
-            data[key_modality_].keys() if depth is None else [depth]
+            data[key_modality_].keys() if depth == WILDCARD else [depth]
         )
     keys["depth"] = tuple(set(keys["depth"]))
 
@@ -215,8 +227,8 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
     for key_modality_ in keys["modality"]:
         for key_depth_ in keys["depth"]:
             keys["spp"].extend(
-                [data[key_modality_][key_depth_].keys()]
-                if spp is None else [spp]
+                data[key_modality_][key_depth_].keys()
+                if spp == WILDCARD else [spp]
             )
     keys["spp"] = tuple(set(keys["spp"]))
 
@@ -226,7 +238,7 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
             for key_spp_ in keys["spp"]:
                 keys["bps"].extend(
                     data[key_modality_][key_depth_][key_spp_].keys()
-                    if bps is None else [bps]
+                    if bps == WILDCARD else [bps]
                 )
     keys["bps"] = tuple(set(keys["bps"]))
 
@@ -256,19 +268,19 @@ def get_stats(data: dict, modality: Optional[str], depth: Optional[str],
 
 
 def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
-                      modality: Optional[str] = None, depth: Optional[str] = None,
-                      spp: Optional[str] = None, bps: Optional[str] = None,
-                      compression_format: Optional[str] = None):
+                      modality: str = "*", depth: str = "*",
+                      spp: str = "*", bps: str = "*",
+                      compression_format: str = "*"):
     """Pair metrics with metrics and show relationship using a line graph
 
-    @param x_metric:
-    @param y_metric:
-    @param raw_data_fname:
-    @param modality:
-    @param depth:
-    @param spp:
-    @param bps:
-    @param compression_format:
+    @param x_metric: Metric displayed in the x-axis
+    @param y_metric: Metric displayed in the y-axis
+    @param raw_data_fname: File name containing the raw data to be processed
+    @param modality: Modality of the images to be studied
+    @param depth: Number of frames of the image
+    @param spp: Samples per pixel
+    @param bps: Bits per sample
+    @param compression_format: Compression format of the compression instances
     """
     x_metric, y_metric = x_metric.lower(), y_metric.lower()
     if modality is not None:
@@ -279,14 +291,18 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     # Filter rows
     for i, row in df.iterrows():
         row_filename_ = row["filename"]
-        if modality not in [dataset_img_info(row_filename_, MODALITY), None]\
-                or depth not in [dataset_img_info(row_filename_, DEPTH), None]\
-                or spp not in [dataset_img_info(row_filename_, SAMPLES_PER_PIXEL), None]\
-                or bps not in [dataset_img_info(row_filename_, BITS_PER_SAMPLE), None]\
-                or (row_filename_.endswith(f".{compression_format}") or row_filename_ is None):
+        if modality not in [dataset_img_info(row_filename_, MODALITY), WILDCARD]\
+                or depth not in [dataset_img_info(row_filename_, DEPTH), WILDCARD]\
+                or spp not in [dataset_img_info(row_filename_, SAMPLES_PER_PIXEL), WILDCARD]\
+                or bps not in [dataset_img_info(row_filename_, BITS_PER_SAMPLE), WILDCARD]\
+                or compression_format not in [row_filename_.split(".")[-1], WILDCARD]:
             df = df.drop(index=i)
 
-    x, y = df[x_metric], df[y_metric]
+    if df.empty:
+        print("No data found with the specified attributes!")
+        exit(1)
+
+    x, y = [df[column].values for column in (x_metric, y_metric)]
 
     zipped = list(zip(x, y))
     zipped = sorted(zipped, key=lambda elem: elem[0])  # Sort by the x-axis
@@ -297,26 +313,55 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
                title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
 
 
+class GraphMode(Enum):
+    """Defines types of data visualization
+
+    """
+    METRIC = 1
+    QUALITY = 2
+    IMAGE = 3
+
+
+class Pipeline(Enum):
+    """Enum class: Identifies the pipelines
+
+    Whether if it's the main pipeline, which evaluates the recent compression formats,
+        or the jpeg, which evaluates that format.
+
+    """
+    MAIN = 1
+    JPEG = 2
+
+
 if __name__ == '__main__':
-    EVALUATE = "metric"
-    EXPERIMENT = "jpeg"  # main or jpeg
+
+    # Aliases
+    mode = GraphMode
+    pip = Pipeline
+
+    EVALUATE = mode.QUALITY
+    EXPERIMENT = pip.MAIN
 
     match EVALUATE, EXPERIMENT:
-        case "image", "main":
+        case mode.IMAGE, pip.MAIN:
             metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
-        case "quality", "main":
-            metric_per_quality(modality="CT", metric="ds", depth="1", spp="1", bps="12",
+        case mode.QUALITY, pip.MAIN:
+            metric_per_quality(modality="CT", metric="psnr", depth="1", spp="1", bps=WILDCARD,
                                compression_format="jxl",
-                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.json")
-
-        case "metric", "main":
+                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.json")
+        case mode.QUALITY, pip.JPEG:
+            metric_per_quality(modality="CT", depth="1", metric="cr", spp="1",
+                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
+                               compression_format="jpeg")
+        case mode.METRIC, pip.MAIN:
             metric_per_metric(x_metric="ssim", y_metric="cr",
-                              modality="CT", depth="1", spp="1", bps=None,
+                              modality="CT", depth="*", spp="1", bps=WILDCARD,
                               compression_format="jxl",
                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
-        case "metric", "jpeg":
-            metric_per_metric(x_metric="ssim", y_metric="cr",
-                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
+        case mode.METRIC, pip.JPEG:
+            metric_per_metric(x_metric="ssim", y_metric="cr", modality="CT", depth="1",
+                              compression_format="jpeg", spp="1", bps=WILDCARD,
+                              raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv")
         case _:
             print("Invalid settings!")
             exit(1)

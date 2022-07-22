@@ -179,6 +179,9 @@ def exec_shell(command: str):
 if __name__ == "__main__":
     # Specify the directory where the dicom files are
     raw_dataset: str = "images/dataset_dicom/"
+    if not os.path.exists(raw_dataset):
+        os.makedirs(raw_dataset)
+
     dirs: list[str] = []
 
     # Get all dicom files (hardcoded)
