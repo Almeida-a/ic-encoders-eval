@@ -9,26 +9,28 @@ More specifically, the purpose is to generate a json file that sums up statistic
         - psnr: min,max,avg,stddev
         - ssim: min,max,avg,stddev
 
-This is a project side-experiment.
+This is a project secondary experiment.
 
 """
 
 import json
 import os
+from subprocess import Popen, PIPE
 from typing import Dict, List
 
-import cv2
 import numpy as np
 import pandas as pd
+from numpy import ndarray
+from pydicom import dcmread
 
+import dicom_parser
 import metrics
-import parameters
-from parameters import JPEG_EVAL_RESULTS_FILE
+from parameters import JPEG_EVAL_RESULTS_FILE, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, DATASET_PATH
 
-QUALITY_SPREAD: int = 20
+QUALITY_SPREAD: int = 1
 # Quality settings
-QUALITY_VALUES: np.ndarray = np.linspace(1, 100, QUALITY_SPREAD)
-# Where the raw/processed results of the experiment are written on
+QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS)\
+    .astype(np.ubyte)
 
 
 def images(ext: str) -> str:
@@ -38,15 +40,21 @@ def images(ext: str) -> str:
     :return: Sequence of image files path to be processed for the experiment
     """
 
-    possible_ext = (".jpg", ".png")
+    possible_ext = (".jpg", ".png", ".dcm")
 
     if ext not in possible_ext:
         raise AssertionError(f"Unsupported extension: {ext}")
 
-    prefix: str = "images/dataset/"
+    prefix: str = "images/dataset"
+
+    if ext == ".dcm":
+        prefix += "_dicom"
+    prefix += "/"
 
     for file in os.listdir(prefix):
-        if file.endswith(ext):
+        if file.endswith(ext) or ext == ".dcm":
+            # If we are looking for the dicom files, the extensions might not be there, but we know they are
+            #   in that prefix/dir, thus no verification needed
             yield prefix+file
 
 
@@ -63,37 +71,43 @@ def compress_n_compare():
     # Compress using the above quality parameters
     # Save the compression ratio in a dataframe
     df = pd.DataFrame(data=dict(fname=[], cr=[], mse=[], psnr=[], ssim=[]))
-    for file_path in images(parameters.LOSSLESS_EXTENSION):
-        file_name: str = ".".join(os.path.basename(file_path).split(".")[:-1])
+    for file_path in images(".dcm"):
+        file_name: str = os.path.basename(file_path)
+
+        print(f"Evaluating {file_name}", end="...")
         for quality in QUALITY_VALUES:
-            quality = int(quality)
 
-            # Read input file
-            img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+            encoded_target_path = f"{DATASET_PATH}tmp.dcm"
 
-            # Truncate the image to 8 bits, since jpeg can't encode above 8 bits
-            img = img.astype(np.uint8)
+            # Read input uncompressed image file
+            dcm_data = dcmread(file_path)
+            bits_per_sample = dcm_data[dicom_parser.STORED_BITS_TAG]
+            uncompressed_img: ndarray = dcm_data.pixel_array
 
             # Encode input file
-            status, img_encode = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
-            assert status is True, f"Error encoding the image \"{file_path}\""
+            command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
+            exec_cmd(command)
+
+            # Read encoded image file
+            img_encoded = dcmread(encoded_target_path)
+
+            encoded_pixel_array: ndarray = img_encoded.pixel_array
+
+            assert encoded_pixel_array.dtype == uncompressed_img.dtype,\
+                f"Unexpected loss of bit depth to {encoded_pixel_array.dtype}!"
 
             # Get the compressed image size
-            encoded_img_bit_depth = 8
-            assert img_encode.dtype == np.uint8, f"JPEG bitstream dtype should be" \
-                                                 f" uint{encoded_img_bit_depth}, not {img_encode.dtype}!"
+            img_encoded_size = len(img_encoded.PixelData)
 
             # Calculate dataset_compressed bitstream size
-            og_image_bitdepth = 8
-            cr = img.size * og_image_bitdepth / (img_encode.size * encoded_img_bit_depth)
-
-            # Decode JPEG bitstream
-            img_comp = cv2.imdecode(np.array(img_encode), cv2.IMREAD_UNCHANGED)
+            og_image_bit_depth = int(uncompressed_img.dtype.name.split("uint")[1])
+            cr = uncompressed_img.size * og_image_bit_depth / img_encoded_size
 
             # Calculate the SSIM between the images
-            mse, psnr, ssim = (
-                metric(img, img_comp) for metric in (metrics.mse, metrics.psnr, metrics.ssim)
+            mse, ssim = (
+                metric(uncompressed_img, encoded_pixel_array) for metric in (metrics.custom_mse, metrics.custom_ssim)
             )
+            psnr = metrics.custom_psnr(uncompressed_img, encoded_pixel_array, bits_per_sample=bits_per_sample.value)
 
             # Write to dataframe
             df = pd.concat([pd.DataFrame(dict(
@@ -103,7 +117,21 @@ def compress_n_compare():
                 psnr=[psnr],
                 ssim=[ssim]
             )), df])
+
+        print("Done!")
     df.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
+
+
+def exec_cmd(command):
+    """
+
+    @param command:
+    """
+    p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
+    p.communicate(timeout=15)
+    if p.returncode != 0:
+        print(f"Error status {p.returncode} executing the following command: \"{command}\"")
+        exit(1)
 
 
 def squeeze_stats(csv_file_path: str):
@@ -133,7 +161,7 @@ def squeeze_stats(csv_file_path: str):
         # Set up new entry in stat dict
         stats[f"q{quality_val}"] = dict()
 
-        for metric in (*parameters.qmetrics.keys(), "cr"):
+        for metric in ("mse", "psnr", "ssim", "cr"):
             # Write stats in dict
             metric_vals: List[float] = sub_df[metric]
             stats[f"q{quality_val}"][metric] = dict(
@@ -146,6 +174,17 @@ def squeeze_stats(csv_file_path: str):
     json.dump(stats, out_file, indent=6)
 
 
+def check_deps():
+    """Verifies the existence of dependencies
+
+    """
+    if os.system("which dcmcjpeg") != 0:
+        print(f"dcmtk not found!")
+        exit(1)
+
+
 if __name__ == '__main__':
+    check_deps()
+
     compress_n_compare()
     squeeze_stats(f"{JPEG_EVAL_RESULTS_FILE}.csv")

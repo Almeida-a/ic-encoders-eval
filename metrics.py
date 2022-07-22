@@ -10,13 +10,12 @@
   * Mean-SSIM
 
 """
+import sys
+from typing import Tuple, Callable, Any
 
-import math
-from typing import Tuple
-
-from skimage.metrics import structural_similarity as ssim
-import cv2
 import numpy as np
+from numpy import ndarray
+from skimage.metrics import structural_similarity as ssim, mean_squared_error as mse, peak_signal_noise_ratio as psnr
 
 
 def are_images_comparable(img1_: np.ndarray, img2_: np.ndarray, same_dtype: bool = False) -> Tuple[bool, str]:
@@ -37,59 +36,93 @@ def are_images_comparable(img1_: np.ndarray, img2_: np.ndarray, same_dtype: bool
     return True, ""
 
 
-def mse(img1: np.ndarray, img2: np.ndarray) -> float:
+def custom_ssim(img1_: np.ndarray, img2_: np.ndarray, color: bool = False) -> float:
+    """
+
+    @param color:
+    @param img1_: Image 1
+    @param img2_: Image 2
+    @return: SSIM value measuring the visibility between the two images
+    """
+
+    if color is False:
+        color = img1_.shape[-1] in (3, 4)
+    kwargs = dict()
+
+    if color:
+        kwargs["channel_axis"] = -1
+
+    return metric_router(img1_, img2_, ssim, **kwargs)
+
+
+def custom_mse(img1_: np.ndarray, img2_: np.ndarray) -> float:
     """ Calculates the Mean Squared Error between two images.
 
     Reference https://www.statology.org/mean-squared-error-python/
-    :param img1: Image 1
-    :param img2: Image 2
+    :param img1_: Image 1
+    :param img2_: Image 2
     :return: MSE between the "images" in float type
     """
 
-    # Images must be comparable
-    comparable, error_msg = are_images_comparable(img1, img2)
-    assert comparable, error_msg
-
-    return np.square(np.subtract(img1, img2)).mean()
+    return metric_router(img1_, img2_, mse)
 
 
-def psnr(img1_: np.ndarray, img2_: np.ndarray) -> float:
+def custom_psnr(img1_: np.ndarray, img2_: np.ndarray, bits_per_sample: int | None = None) -> float:
     """ Calculates the PSNR value of the difference between the images
 
-    Credits: https://www.geeksforgeeks.org/python-peak-signal-to-noise-ratio-psnr/
+    Calculates each frame at a time, for multi-frame images
 
-    :param img1_: Image 1.
-    :param img2_: Image 2.
-    :return: PSNR score.
+    @param img1_: Image 1.
+    @param img2_: Image 2.
+    @param bits_per_sample:
+    @return: PSNR score.
     """
+
+    max_pixel = 2 ** bits_per_sample
+
+    return metric_router(img1_, img2_, psnr, data_range=max_pixel)
+
+
+def metric_router(img1_: ndarray, img2_: ndarray, metric_func: Callable, **kwargs) -> float:
+    """Calls upon the metric function to calculate the value
+
+    If multi-frame, calculates per frame and averages the result
+    Used skimage lib
+
+    @param img1_:
+    @param img2_:
+    @param metric_func: Function that calculates the metric per frame
+    @param kwargs: Specific parameter for the metric
+    @return:
+    """
+    assert callable(metric_func), f"Object \"{metric_func}\" is not a function!"
+
+    ndim = len(img1_.shape)
+    is_colored = img1_.shape[-1] in (3, 4)
+
+    if metric_func == mse and kwargs != dict():
+        raise Warning(f"Keyword arguments: \"{kwargs}\" are not used in MSE metric!")
+    elif metric_func == psnr:
+        for key in kwargs.keys():
+            if key != "data_range":
+                kwargs.pop(key)
+                raise Warning(f"Keyword argument: \"{key}\" is not used in the PSNR metric!")
+    elif metric_func == ssim:
+        for key in kwargs.keys():
+            if key != "channel_axis":
+                kwargs.pop(key)
+                raise Warning(f"Keyword argument: \"{key}\" is not used in the SSIM metric!")
+
     comparable, error_msg = are_images_comparable(img1_, img2_)
     assert comparable, error_msg
 
-    mean_squared_error = mse(img1_, img2_)
-
-    # No noise -> PSNR max
-    if mean_squared_error == 0:
-        return 100.
-
-    # Get the largest bit depth of the images (extract from np.dtype)
-    bit_depth = max([int(str(img.dtype).split("int")[-1]) for img in (img1_, img2_)])
-
-    max_pixel = 2 ** bit_depth
-
-    return 20 * math.log10(max_pixel / math.sqrt(mean_squared_error))
-
-
-if __name__ == '__main__':
-    img1_path: str = "images/miles_morales_night_spark-wallpaper-1920x1080.jpg"
-    img2_path: str = "images/winter_season_8-wallpaper-1920x1080.jpg"
-
-    img1 = cv2.imread(img1_path)
-    img2 = cv2.imread(img2_path)
-
-    # Convert to grayscale
-    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-    print(f"MSE = {round(mse(img1, img2), 1)}")
-    print(f"PSNR = {round(psnr(img1, img2), 1)}")
-    print(f"SSIM = {round(ssim(img1, img2), 1)}")
+    if ndim == 2 or ndim == 3 and is_colored:
+        # Single frame image (gray-scaled or colored)
+        return metric_func(img1_, img2_, **kwargs)
+    elif ndim == 4 or ndim == 3:
+        # Multi-frame image
+        return np.array(
+            [metric_func(img1_i, img2_i, **kwargs) for img1_i, img2_i in zip(img1_, img2_)]
+        ).mean()
+    else:
+        raise AssertionError(f"Strange image shape: {img1_.shape}")
