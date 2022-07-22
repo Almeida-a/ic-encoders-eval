@@ -11,8 +11,8 @@ medical imaging.
    1. [Setting up](#setting-up)
       1. [Hardware Requirements](#hardware-requirements)
       2. [Dependencies](#dependencies)
-      3. [For x86_64 architectures](#for-x86_64-architectures)
-      4. [Other Architectures](#other-architectures)
+      3. [For x86_64 versions](#for-x86_64-versions)
+      4. [Other instruction set versions](other-instruction-set-versions)
       5. [Dataset](#dataset)
    2. [Running](#running)
 
@@ -21,17 +21,6 @@ medical imaging.
 ### Codecs Evaluation Pipeline
 
 This project is aimed to evaluate the most recent image compression formats.
-
-
-### Concepts
-
-#### Image Compression
-
-...
-
-#### DICOM Standard
-
-...
 
 ## Usage Guide
 
@@ -44,11 +33,18 @@ your machine.
 
 #### Dependencies
 
+Ensure you have `python3.10` installed, as well as the `pip` module.
+
+Install the dicom toolkit software:
 ```shell
 sudo apt install dcmtk
 ```
+Install the required libraries to run the pipeline:
+```shell
+pip install -r requirements.txt
+```
 
-#### For x86_64 architectures
+#### For x86_64 versions
 
 ##### AVIF
 
@@ -57,44 +53,33 @@ toolkit with:
 ```shell
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
-Secondly, install cavif-rs
+Secondly, install [cavif-rs](https://github.com/kornelski/cavif-rs)
 ```shell
-cargo install cavif-rs
+cargo install cavif
 ```
 
 ##### JPEG XL
-Download the binaries for [x86_64-linux](https://github.com/libjxl/libjxl/releases/download/v0.6.1/jxl-linux-x86_64-static-v0.6.1.tar.gz).
+Currently, I use a recent build from the [master](https://github.com/libjxl/libjxl) branch, not present on the releases.
 
-Create a directory for the JPEG XL:
-```shell
-mkdir ~/jxl-linux-x86_64-static-v0.6.1
-```
+Use a binary from version v0.7.0, build [ae95f45](https://github.com/libjxl/libjxl/commit/ae95f451e0d23a209fa22efac4771969a23dac99) (build from source).
 
-You will need to include the binaries into the PATH environment variable:
-
-**If** you use bash:
-```shell
-tar -C ~ -xzvf ~/Downloads/jxl-linux-x86_64-static-v0.6.1.tar.gz
-echo 'export JXL="$HOME/jxl-linux-x86_64-static-v0.6.1"' >> ~/.bashrc
-echo 'export PATH="$JXL/tools:$PATH"' >> ~/.bashrc
-```
-If you use zshell, switch ~/.bashrc with ~/.zshrc.
+Nextly, add `cjxl`/`djxl` binaries to your `PATH` variable.
 
 ##### WebP
-Download WebP for [x86_64-linux](https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.2.1-linux-x86-64.tar.gz)
-. Then run the following commands
+Run the following commands
 **if** you use bash:
 ```shell
+curl https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.2.1-linux-x86-64.tar.gz --output ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
 tar -C ~ -xzvf ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
 echo 'export WEBP_HOME="$HOME/libwebp-1.2.1-linux-x86-64"' >> ~/.bashrc
 echo 'export PATH="$WEBP_HOME/bin:$PATH"' >> ~/.bashrc
 ```
 If you use zshell, switch ~/.bashrc with ~/.zshrc.
 
-#### Other architectures
-If you have architectures other than x86_64,
+#### Other instruction set versions
+If you have versions other than x86_64,
 download the appropriate binaries for
-[JPEG XL](https://github.com/libjxl/libjxl/releases/tag/v0.6.1)
+[JPEG XL](https://github.com/libjxl/libjxl) (you need to build from source)
 and [WebP](https://storage.googleapis.com/downloads.webmproject.org/releases/webp/index.html),
 extract and append the binaries' paths to your PATH variable following the example shown at
 the [x86_64](#for-x86_64-architectures) section.
@@ -102,16 +87,7 @@ the [x86_64](#for-x86_64-architectures) section.
 #### Dataset
 
 In order to run the program, you will need a set of dicom files to serve as your experiment
-dataset upon which the results will be based on. Create the following directory in the
-project root dir, and dump the dicom dataset there.
-```shell
-mkdir dataset_dicom
-```
-WARNINGS:
-* The aforementioned directory's name is not arbitrary, you need to name it
-exactly as instructed! The program will not find the dicom files otherwise.
-
-* The program will not find any dicom files inside sub-folders of the dataset_dicom directory.
+dataset upon which the results will be based on. Copy them to the folder `images/dataset_dicom`.
 
 ### Running
 
