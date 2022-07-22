@@ -36,6 +36,7 @@ class ResultsColumnNames(Enum):
     PEAK_SIGNAL_TO_NOICE_RATIO = "psnr"
     STRUCTURAL_SIMILARITY = "ssim"
 
+
 # FILENAME_KEYWORDS = id
 MODALITY = 0
 BODYPART = 1

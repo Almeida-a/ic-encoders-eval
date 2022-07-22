@@ -87,6 +87,7 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
     assert raw_data_fname.endswith(".csv"), f"Data source must be a csv file! Found \"{raw_data_fname}\"."
 
     modality = modality.upper()
+    compression_format = compression_format.lower()
 
     # Read file into dataframe
     df: pd.DataFrame = pandas.read_csv(raw_data_fname)
@@ -268,9 +269,9 @@ def get_stats(data: dict, modality: str, depth: str,
 
 
 def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
-                      modality: str = "*", depth: str = "*",
-                      spp: str = "*", bps: str = "*",
-                      compression_format: str = "*"):
+                      modality: str = WILDCARD, depth: str = WILDCARD,
+                      spp: str = WILDCARD, bps: str = WILDCARD,
+                      compression_format: str = WILDCARD):
     """Pair metrics with metrics and show relationship using a line graph
 
     @param x_metric: Metric displayed in the x-axis
@@ -283,8 +284,9 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     @param compression_format: Compression format of the compression instances
     """
     x_metric, y_metric = x_metric.lower(), y_metric.lower()
-    if modality is not None:
+    if modality != WILDCARD:
         modality = modality.upper()
+    compression_format = compression_format.lower()
 
     df = pd.read_csv(raw_data_fname)
 
@@ -333,21 +335,33 @@ class Pipeline(Enum):
     JPEG = 2
 
 
+class ImageCompressionFormat(Enum):
+    """Enum class: Identifies the Image Compression Formats
+
+    """
+    JXL = 1
+    AVIF = 2
+    WEBP = 3
+    JPEG = 4
+
+
 if __name__ == '__main__':
 
     # Aliases
     mode = GraphMode
     pip = Pipeline
+    ic_format = ImageCompressionFormat
 
-    EVALUATE = mode.QUALITY
+    EVALUATE = mode.METRIC
     EXPERIMENT = pip.MAIN
+    FORMAT = ic_format.JXL.name
 
     match EVALUATE, EXPERIMENT:
         case mode.IMAGE, pip.MAIN:
-            metric_per_image(modality="CT", metric="ds", compression_format="jxl")  # for now, displays a line graph
+            metric_per_image(modality="CT", metric="ds", compression_format=FORMAT)  # for now, displays a line graph
         case mode.QUALITY, pip.MAIN:
-            metric_per_quality(modality="CT", metric="psnr", depth="1", spp="1", bps=WILDCARD,
-                               compression_format="jxl",
+            metric_per_quality(modality="SM", metric="ssim", depth="1", spp="*", bps=WILDCARD,
+                               compression_format=FORMAT,
                                raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.json")
         case mode.QUALITY, pip.JPEG:
             metric_per_quality(modality="CT", depth="1", metric="cr", spp="1",
@@ -355,8 +369,8 @@ if __name__ == '__main__':
                                compression_format="jpeg")
         case mode.METRIC, pip.MAIN:
             metric_per_metric(x_metric="ssim", y_metric="cr",
-                              modality="CT", depth="*", spp="1", bps=WILDCARD,
-                              compression_format="jxl",
+                              modality="SM", depth="*", spp="*", bps=WILDCARD,
+                              compression_format=FORMAT,
                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
         case mode.METRIC, pip.JPEG:
             metric_per_metric(x_metric="ssim", y_metric="cr", modality="CT", depth="1",

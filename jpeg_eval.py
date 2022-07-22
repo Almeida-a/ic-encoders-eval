@@ -65,8 +65,9 @@ def compress_n_compare():
             nframes: int = dicom_parser.get_number_of_frames(dcm_data, uncompressed_img.shape,
                                                              single_channel=samples_per_pixel == 1)
 
-            encoded_target_path = f"{DATASET_PATH}{modality.value}_{body_part.value}_{color_space.value}_" \
-                                  f"{samples_per_pixel.value}_{bits_per_sample.value}_{nframes}.dcm"
+            encoded_target_path = f"{DATASET_PATH}{modality.value}_{body_part.value}" \
+                                  f"_{color_space.value.replace('_', '')}_{samples_per_pixel.value}" \
+                                  f"_{bits_per_sample.value}_{nframes}.dcm"
 
             # Encode input file
             command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
@@ -114,6 +115,10 @@ def compress_n_compare():
             )), df])
 
         print("Done!")
+
+    for generated_dcm in filter(lambda file: file.endswith(".dcm"), os.listdir(DATASET_PATH)):
+        os.remove(DATASET_PATH+generated_dcm)
+
     df.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
 
 
