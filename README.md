@@ -15,6 +15,11 @@ medical imaging.
       4. [Other Architectures](#other-architectures)
       5. [Dataset](#dataset)
    2. [Running](#running)
+      1. [Main Pipeline](#main-pipeline)
+      2. [JPEG Pipeline](#jpeg-pipeline)
+3. [TODOs](#todos)
+3. [Feedback](#feedback)
+4. [Licence](#license)
 
 ## About
 
@@ -115,4 +120,44 @@ exactly as instructed! The program will not find the dicom files otherwise.
 
 ### Running
 
-(Under Development)
+#### Main pipeline
+
+To execute the main pipeline benchmark, run:
+```shell
+python3 dicom_parser.py  # pre-processing the dataset to (a)png image files
+python3 procedure.py  # run encoders and captures metrics
+```
+
+Bear in mind that having a big dicom dataset can yield a long script execution time.
+
+Two files `procedure_results.{json,csv}` are generated containing raw data with the benchmark results.
+
+
+To generate the results in charts form, run:
+```shell
+python3 visualize_data.py
+```
+You can edit the script at the bottom in order to generate the results based on what you want to see.
+
+#### JPEG Pipeline
+To perform the benchmarking itself, run:
+```shell
+python3 jpeg_eval.py
+```
+
+Bear in mind that having a big dicom dataset can yield a long script execution time.
+
+Two files `procedure_results.{json,csv}` are generated containing raw data with the benchmark results.
+
+## TODOs
+ * Make the `visualize_data.py` charts generation module easier to use -
+ either by clearly defining running configurations (yaml?), or by executing all possible charts at once.
+ * Add bodypart as a filter to to charts generation
+ * Add ">n" as a filter to the image depth (number of frames) in `visualize_data.py`
+
+## Feedback
+If you find a bug or want to send feedback, please feel free to open an issue or pull request!
+
+## License
+This project is licensed under the MIT License - see the [LICENSE.md](https://github.com/Almeida-a/ic-encoders-eval/blob/master/LICENSE) file for details.
+
