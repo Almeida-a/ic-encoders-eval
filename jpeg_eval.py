@@ -15,6 +15,7 @@ This is a project secondary experiment.
 
 import os
 from subprocess import Popen, PIPE
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -49,7 +50,7 @@ def compress_n_compare():
 
     # Compress using the above quality parameters
     # Save the compression ratio in a dataframe
-    df = pd.DataFrame(data=dict(filename=[], cr=[], mse=[], psnr=[], ssim=[]))
+    results = pd.DataFrame(data=dict(filename=[], cr=[], mse=[], psnr=[], ssim=[]))
 
     for file_name in os.listdir(DATASET_DICOM_PATH):
         file_path: str = DATASET_DICOM_PATH + file_name
@@ -62,6 +63,7 @@ def compress_n_compare():
             uncompressed_img: ndarray = dcm_data.pixel_array
 
             body_part, bits_per_sample, color_space, modality, samples_per_pixel = extract_attributes(dcm_data)
+            bits_allocated = dcm_data.get(dicom_parser.BITS_ALLOCATED_TAG)
             nframes: int = dicom_parser.get_number_of_frames(dcm_data, uncompressed_img.shape,
                                                              single_channel=samples_per_pixel == 1)
 
@@ -81,12 +83,12 @@ def compress_n_compare():
             assert encoded_pixel_array.dtype == uncompressed_img.dtype, \
                 f"Unexpected loss of bit depth from {uncompressed_img.dtype} to {encoded_pixel_array.dtype}!"
 
-            # Get the compressed image size
-            img_encoded_size = len(img_encoded.PixelData)
+            # Get the compressed image size (bytes)
+            uncompressed_img_size: float | Any = uncompressed_img.size * (bits_allocated.value / 8)
+            img_encoded_size: int = len(img_encoded.PixelData)
 
-            # Calculate dataset_compressed bitstream size
-            og_image_bit_depth = int(uncompressed_img.dtype.name.split("uint")[1])
-            cr = uncompressed_img.size * og_image_bit_depth / img_encoded_size
+            # Calculate CR
+            cr = uncompressed_img_size / img_encoded_size
 
             # Calculate the SSIM between the images
             mse, ssim = (
@@ -99,27 +101,27 @@ def compress_n_compare():
             file_name = os.path.basename(encoded_target_path).replace('.dcm', suffix)
 
             # Ensure file name is unique (add id if need be)
-            if file_name in list(df["filename"].values):
+            if file_name in list(results["filename"].values):
                 file_name = file_name.replace(suffix, f"_1{suffix}")
                 i = 1
-                while file_name in df["filename"].values:
+                while file_name in results["filename"].values:
                     file_name = file_name.replace(f"_{i}{suffix}", f"_{i+1}{suffix}")
                     i += 1
 
-            df = pd.concat([pd.DataFrame(dict(
+            results = pd.concat([pd.DataFrame(dict(
                 filename=[f"{file_name}"],
                 cr=[cr],
                 mse=[mse],
                 psnr=[psnr],
                 ssim=[ssim]
-            )), df])
+            )), results])
 
         print("Done!")
 
     for generated_dcm in filter(lambda file: file.endswith(".dcm"), os.listdir(DATASET_PATH)):
         os.remove(DATASET_PATH+generated_dcm)
 
-    df.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
+    results.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
 
 
 def exec_cmd(command):

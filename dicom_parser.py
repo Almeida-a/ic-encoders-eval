@@ -18,6 +18,7 @@ from parameters import DATASET_PATH, LOSSLESS_EXTENSION
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
+BITS_ALLOCATED_TAG = BaseTag(0x0028_0100)
 STORED_BITS_TAG = BaseTag(0x0028_0101)
 PHOTOMETRIC_INTERPRETATION_TAG = BaseTag(0x0028_0004)  # ColourSpace
 SAMPLES_PER_PIXEL_TAG = BaseTag(0x0028_0002)
@@ -176,22 +177,27 @@ def exec_shell(command: str):
     assert return_code == 0, f"Problem executing \"{command}\", code {return_code}"
 
 
-if __name__ == "__main__":
+def main():
+    """Main function for this module
+
+    """
+    print("Pre-processing dicom dataset into .(a)png", end="...")
     # Specify the directory where the dicom files are
     raw_dataset: str = "images/dataset_dicom/"
     if not os.path.exists(raw_dataset):
         os.makedirs(raw_dataset)
-
     dirs: list[str] = []
-
     # Get all dicom files (hardcoded)
     for filename in os.listdir(raw_dataset):
         dirs.append(filename)
-
     # Empty the images/dataset directory
     for file in os.listdir(DATASET_PATH):
         os.remove(DATASET_PATH + file)
-
     # Call a function to parse each dicom file
     for dcm_file in dirs:
         parse_dcm(filepath=raw_dataset + dcm_file)
+    print("Done!")
+
+
+if __name__ == "__main__":
+    main()
