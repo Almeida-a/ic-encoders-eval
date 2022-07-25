@@ -14,9 +14,9 @@ import matplotlib.pyplot as plt
 import pandas
 import pandas as pd
 
-from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE, \
-    JPEG_EVAL_RESULTS_FILE
-from util import dataset_img_info
+from parameters import PROCEDURE_RESULTS_FILE, JPEG_EVAL_RESULTS_FILE
+
+WILDCARD_REGEX = r"\w+"
 
 WILDCARD: str = "*"
 
@@ -288,23 +288,32 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
         modality = modality.upper()
     compression_format = compression_format.lower()
 
-    df = pd.read_csv(raw_data_fname)
+    chart_title = f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}"
 
-    # Filter rows
-    for i, row in df.iterrows():
-        row_filename_ = row["filename"]
-        if modality not in [dataset_img_info(row_filename_, MODALITY), WILDCARD]\
-                or depth not in [dataset_img_info(row_filename_, DEPTH), WILDCARD]\
-                or spp not in [dataset_img_info(row_filename_, SAMPLES_PER_PIXEL), WILDCARD]\
-                or bps not in [dataset_img_info(row_filename_, BITS_PER_SAMPLE), WILDCARD]\
-                or compression_format not in [row_filename_.split(".")[-1], WILDCARD]:
-            df = df.drop(index=i)
+    results = pd.read_csv(raw_data_fname)
 
-    if df.empty:
+    if spp == WILDCARD:
+        spp = WILDCARD_REGEX
+    if bps == WILDCARD:
+        bps = WILDCARD_REGEX
+    if depth == WILDCARD:
+        depth = WILDCARD_REGEX
+    if modality == WILDCARD:
+        modality = WILDCARD_REGEX
+    if compression_format == WILDCARD:
+        compression_format = WILDCARD_REGEX
+
+    results = results.set_index("filename")
+    results = results.filter(
+        axis="index",
+        regex=fr"{modality}_\w+_\w+_{spp}_{bps}_{depth}(_\d+)?_(.apng)?q\d+(.\d+)?(-e\d)?.{compression_format}"
+    )
+
+    if results.empty:
         print("No data found with the specified attributes!")
         exit(1)
 
-    x, y = [df[column].values for column in (x_metric, y_metric)]
+    x, y = [results[column].values for column in (x_metric, y_metric)]
 
     zipped = list(zip(x, y))
     zipped = sorted(zipped, key=lambda elem: elem[0])  # Sort by the x-axis
@@ -312,7 +321,7 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     x, y = list(zip(*zipped))
 
     draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
-               title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
+               title=chart_title)
 
 
 class GraphMode(Enum):
@@ -364,12 +373,12 @@ if __name__ == '__main__':
                                compression_format=FORMAT,
                                raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.json")
         case mode.QUALITY, pip.JPEG:
-            metric_per_quality(modality="CT", depth="1", metric="cr", spp="1",
+            metric_per_quality(modality="CT", depth="1", metric="ssim", spp="1",
                                raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
                                compression_format="jpeg")
         case mode.METRIC, pip.MAIN:
-            metric_per_metric(x_metric="ssim", y_metric="cr",
-                              modality="SM", depth="*", spp="*", bps=WILDCARD,
+            metric_per_metric(x_metric="ssim", y_metric="ds",
+                              modality="CT", depth="1", spp="*", bps=WILDCARD,
                               compression_format=FORMAT,
                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
         case mode.METRIC, pip.JPEG:
