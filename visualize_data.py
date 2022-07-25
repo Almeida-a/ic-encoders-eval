@@ -132,7 +132,7 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     plt.ylabel(y_label.upper())
     plt.title(title.upper())
 
-    min_: float = min([values[i] - errs[i] for i in range(len(values))])
+    min_: float = min(values[i] - errs[i] for i in range(len(values)))
 
     maxes = [values[i] + errs[i] for i in range(len(values))]
     maxes.remove(float("inf")) if float("inf") in maxes else None
@@ -173,7 +173,7 @@ def metric_per_quality(compression_format: str, metric: str,
 
     # Initialize x, y and err lists, respectively
     qualities, avg, std = [], [], []
-    histogram = dict()
+    histogram = {}
 
     for key, value in data.items():
         if not key.endswith(compression_format):
@@ -213,11 +213,11 @@ def get_stats(data: dict, modality: str, depth: str,
     @param metric: Evaluation parameter
     @return: Dictionary containing statistics (min/max/avg/dev)
     """
-    keys: dict[str, list | tuple] = dict()
+    keys: dict[str, list | tuple] = {
+        "modality": (*data.keys(),) if modality == WILDCARD else (modality,),
+        "depth": []
+    }
 
-    keys["modality"] = (*data.keys(),) if modality == WILDCARD else (modality,)
-
-    keys["depth"] = []
     for key_modality_ in keys["modality"]:
         keys["depth"].extend(
             data[key_modality_].keys() if depth == WILDCARD else [depth]

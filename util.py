@@ -34,8 +34,7 @@ def construct_davif(decoded_path: str, input_path: str):
     @param input_path: Input path
     @return: Command
     """
-    command: str = f"avif_decode {input_path} {decoded_path}"
-    return command
+    return f"avif_decode {input_path} {decoded_path}"
 
 
 def construct_dwebp(decoded_path: str, input_path: str, additional_options: str = ""):
@@ -48,8 +47,7 @@ def construct_dwebp(decoded_path: str, input_path: str, additional_options: str 
     @param input_path: Input path
     @return: Command
     """
-    command: str = f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
-    return command
+    return f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
 
 
 def construct_cwebp(effort, output_path, quality, target_image):
@@ -77,10 +75,7 @@ def construct_cavif(output_path, quality, speed, target_image):
     @param target_image: Input
     @return: Void
     """
-    command: str = f"cavif -o {output_path} " \
-                   f"--quality {quality} --speed {speed} --quiet " \
-                   f"{os.path.abspath(target_image)}"
-    return command
+    return f"cavif -o {output_path} " f"--quality {quality} --speed {speed} --quiet " f"{os.path.abspath(target_image)}"
 
 
 def construct_cjxl(distance, effort, output_path, target_image):
@@ -94,9 +89,7 @@ def construct_cjxl(distance, effort, output_path, target_image):
     @param target_image: Input
     @return: Void
     """
-    command: str = f"cjxl {target_image} {output_path} " \
-                   f"--distance={distance} --effort={effort} --quiet"
-    return command
+    return f"cjxl {target_image} {output_path} " f"--distance={distance} --effort={effort} --quiet"
 
 
 def timed_command(stdin: str) -> float:

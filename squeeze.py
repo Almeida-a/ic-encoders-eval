@@ -23,24 +23,23 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
      * data is saved under {parameters.PROCEDURE_RESULTS_FILE}.json
     """
 
-    # Read csv to df
-    ordered_proc_res = list(filter(
+    ordered_proc_res = sorted(filter(
         lambda file: file.startswith(results_file) and file.endswith(".csv"),
-        os.listdir()
-    ))
-    ordered_proc_res.sort()
+        os.listdir())
+    )
+
     latest_procedure_results = ordered_proc_res[-1]
 
     file_data = pd.read_csv(latest_procedure_results)
 
     # Aggregate the results to a dict
-    resume = dict()
+    resume = {}
 
     file_data = file_data.set_index("filename")  # allows using df.filter
 
     used_regexs: list[str] = []
 
-    for _, filename in enumerate(file_data.index.values):
+    for filename in file_data.index.values:
         settings = filename.split("_")[-1]
         modality = dataset_img_info(filename, MODALITY)
         depth = dataset_img_info(filename, DEPTH)
@@ -60,15 +59,15 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
 
         # Create settings and modality entry if they don't exist
         if resume.get(settings) is None:
-            resume[settings] = dict()
+            resume[settings] = {}
         if resume[settings].get(modality) is None:
-            resume[settings][modality] = dict()
+            resume[settings][modality] = {}
         if resume[settings][modality].get(depth) is None:
-            resume[settings][modality][depth] = dict()
+            resume[settings][modality][depth] = {}
         if resume[settings][modality][depth].get(samples_per_pixel) is None:
-            resume[settings][modality][depth][samples_per_pixel] = dict()
+            resume[settings][modality][depth][samples_per_pixel] = {}
         if resume[settings][modality][depth][samples_per_pixel].get(bits_per_sample) is None:
-            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = dict()
+            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = {}
         else:
             # Entry has already been filled, skip to avoid re-doing the operations
             continue

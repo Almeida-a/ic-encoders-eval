@@ -10,8 +10,7 @@
   * Mean-SSIM
 
 """
-import sys
-from typing import Tuple, Callable, Any
+from typing import Tuple, Callable
 
 import numpy as np
 from numpy import ndarray
@@ -36,20 +35,20 @@ def are_images_comparable(img1_: np.ndarray, img2_: np.ndarray, same_dtype: bool
     return True, ""
 
 
-def custom_ssim(img1_: np.ndarray, img2_: np.ndarray, color: bool = False) -> float:
+def custom_ssim(img1_: np.ndarray, img2_: np.ndarray, is_colorized: bool = False) -> float:
     """
 
-    @param color:
+    @param is_colorized:
     @param img1_: Image 1
     @param img2_: Image 2
     @return: SSIM value measuring the visibility between the two images
     """
 
-    if color is False:
-        color = img1_.shape[-1] in (3, 4)
-    kwargs = dict()
+    if not is_colorized:
+        is_colorized = img1_.shape[-1] in (3, 4)
+    kwargs = {}
 
-    if color:
+    if is_colorized:
         kwargs["channel_axis"] = -1
 
     return metric_router(img1_, img2_, ssim, **kwargs)
@@ -119,7 +118,7 @@ def metric_router(img1_: ndarray, img2_: ndarray, metric_func: Callable, **kwarg
     if ndim == 2 or ndim == 3 and is_colored:
         # Single frame image (gray-scaled or colored)
         return metric_func(img1_, img2_, **kwargs)
-    elif ndim == 4 or ndim == 3:
+    elif ndim in {4, 3}:
         # Multi-frame image
         return np.array(
             [metric_func(img1_i, img2_i, **kwargs) for img1_i, img2_i in zip(img1_, img2_)]

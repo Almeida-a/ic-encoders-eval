@@ -54,7 +54,7 @@ def parse_dcm(filepath: str):
     # Set image path where it will be written on
     attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
                                                   samples_per_pixel.value, bps.value, number_of_frames)])
-    out_img_path: str = DATASET_PATH + f"{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
+    out_img_path: str = f"{DATASET_PATH}{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 
     repetition_id = 0
 
@@ -98,12 +98,10 @@ def get_number_of_frames(file_data: FileDataset, img_shape: tuple, single_channe
     number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
     if number_of_frames is not None:
         number_of_frames = number_of_frames.value
+    elif single_channel and ndim == {3, 4}:
+        number_of_frames = img_shape[0]
     else:
-        # When the info on # of frames is not on the dicom metadata
-        if single_channel and ndim == 3 or ndim == 4:
-            number_of_frames = img_shape[0]
-        else:
-            number_of_frames = 1
+        number_of_frames = 1
     return number_of_frames
 
 
@@ -160,10 +158,9 @@ def write_single_frame(img_array: np.ndarray, out_img_path: str) -> np.ndarray:
     """
 
     # Encode and write image to dataset folder
-    assert cv2.imwrite(out_img_path, img_array) is True, "Image writing (single frame) failed"
     # Assert no information loss within the written image
-    saved_img_array: np.ndarray = cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
-    return saved_img_array
+    assert cv2.imwrite(out_img_path, img_array) is True, "Image writing (single frame) failed"
+    return cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
 
 
 def exec_shell(command: str):
@@ -186,10 +183,7 @@ def main():
     raw_dataset: str = "images/dataset_dicom/"
     if not os.path.exists(raw_dataset):
         os.makedirs(raw_dataset)
-    dirs: list[str] = []
-    # Get all dicom files (hardcoded)
-    for filename in os.listdir(raw_dataset):
-        dirs.append(filename)
+    dirs: list[str] = list(os.listdir(raw_dataset))
     # Empty the images/dataset directory
     for file in os.listdir(DATASET_PATH):
         os.remove(DATASET_PATH + file)

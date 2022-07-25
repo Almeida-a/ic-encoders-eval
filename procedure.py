@@ -4,6 +4,8 @@
 
 """
 
+
+import itertools
 import os.path
 from functools import partial
 from typing import Callable
@@ -91,10 +93,7 @@ def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -
 
     ct = timed_command(command)
 
-    # Parse to compression speed MP/s
-    cs = pixels / (ct * 1e6)
-
-    return cs
+    return pixels / (ct * 1e6)
 
 
 def encode_webp(target_image: str, quality: int, effort: int, output_path: str) -> float:
@@ -264,7 +263,7 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
     else:
         psnr = float("inf")
     ssim: float = metrics.custom_ssim(og_image, decoded_image,
-                                      color=int(dataset_img_info(og_image_path, SAMPLES_PER_PIXEL)) > 1)
+                                      is_colorized=int(dataset_img_info(og_image_path, SAMPLES_PER_PIXEL)) > 1)
 
     return cr, ds, mse, psnr, ssim
 
@@ -322,6 +321,7 @@ def transcode_gray(img_path):
                                                     "gray version for rgb (gray original) image."
 
 
+# TODO break into 3 functions, one for each format
 def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     """ Compress and analyse. Outputs analysis to ".csv".
 
@@ -367,88 +367,85 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     )
 
     # JPEG XL evaluation
-    if jxl is True:
+    if jxl:
         for target_image in image_list:
 
             if not target_image.endswith(".apng") and not target_image.endswith(".png"):
                 continue
 
-            for quality in quality_param_jxl:
-                for effort in effort_jxl:
-                    # Set output path of compressed
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=effort,
-                        quality=quality, target_image=target_image, format_="jxl"
-                    )
+            for quality, effort in itertools.product(quality_param_jxl, effort_jxl):
+                # Set output path of compressed
+                outfile_name, output_path = get_output_path(
+                    dataset_path=DATASET_PATH, effort=effort,
+                    quality=quality, target_image=target_image, format_="jxl"
+                )
 
-                    # Print image analysis
-                    print(f"Started analysing image \"{outfile_name}\"", end="...")
+                # Print image analysis
+                print(f"Started analysing image \"{outfile_name}\"", end="...")
 
-                    # Add wildcard for now because the extensions are missing
-                    cs = encode_jxl(target_image=DATASET_PATH + target_image,
-                                    distance=quality, effort=effort,
-                                    output_path=output_path)
+                # Add wildcard for now because the extensions are missing
+                cs = encode_jxl(target_image=DATASET_PATH + target_image,
+                                distance=quality, effort=effort,
+                                output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
 
     # AVIF
-    if avif is True:
+    if avif:
         for target_image in image_list:
 
-            if not any([target_image.endswith(accepted) for accepted in (".png", ".apng")]):
+            if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
                 continue
 
-            for quality in quality_param_avif:
-                for speed in speed_avif:
-                    # Construct output file total path
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=speed,
-                        quality=quality, target_image=target_image, format_="avif"
-                    )
+            for quality, speed in itertools.product(quality_param_avif, speed_avif):
+                # Construct output file total path
+                outfile_name, output_path = get_output_path(
+                    dataset_path=DATASET_PATH, effort=speed,
+                    quality=quality, target_image=target_image, format_="avif"
+                )
 
-                    # Print the progress being made
-                    print(f"Started analysing image \"{outfile_name}\"", end="...")
+                # Print the progress being made
+                print(f"Started analysing image \"{outfile_name}\"", end="...")
 
-                    cs = encode_avif(target_image=DATASET_PATH + target_image,
-                                     quality=quality, speed=speed, output_path=output_path)
+                cs = encode_avif(target_image=DATASET_PATH + target_image,
+                                 quality=quality, speed=speed, output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
 
     # WebP
-    if webp is True:
+    if webp:
         for target_image in image_list:
 
-            if not any([target_image.endswith(accepted) for accepted in (".png", ".apng")]):
+            if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
                 continue
 
-            for quality in quality_param_webp:
-                for effort in effort_webp:
-                    # Construct output file total path
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=effort, quality=quality,
-                        target_image=target_image, format_="webp"
-                    )
+            for quality, effort in itertools.product(quality_param_webp, effort_webp):
+                # Construct output file total path
+                outfile_name, output_path = get_output_path(
+                    dataset_path=DATASET_PATH, effort=effort, quality=quality,
+                    target_image=target_image, format_="webp"
+                )
 
-                    # Print the progress being made
-                    print(f"Started analysing image \"{outfile_name}\"... ", end="")
+                # Print the progress being made
+                print(f"Started analysing image \"{outfile_name}\"... ", end="")
 
-                    # Add wildcard for now because the extensions are missing
-                    cs = encode_webp(target_image=DATASET_PATH + target_image,
-                                     quality=quality, effort=effort, output_path=output_path)
+                # Add wildcard for now because the extensions are missing
+                cs = encode_webp(target_image=DATASET_PATH + target_image,
+                                 quality=quality, effort=effort, output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
 
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
@@ -492,12 +489,13 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     """
 
     # Construct output file total path
-    outfile_name: str = target_image.split(LOSSLESS_EXTENSION)[0] + "_" + f"q{quality}-e{effort}.{format_}"
+    outfile_name: str = f"{target_image.split(LOSSLESS_EXTENSION)[0]}_" + f"q{quality}-e{effort}.{format_}"
+
     # Trim trailing slash "/"
     trimmed: list = dataset_path.split("/")
     trimmed.remove("")
     trimmed: str = "/".join(trimmed)
-    output_path: str = trimmed + "_compressed/" + outfile_name
+    output_path: str = f"{trimmed}_compressed/{outfile_name}"
     return outfile_name, output_path
 
 

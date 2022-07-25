@@ -141,7 +141,7 @@ def check_deps():
 
     """
     if os.system("which dcmcjpeg") != 0:
-        print(f"dcmtk not found!")
+        print("dcmtk not found!")
         exit(1)
 
 
