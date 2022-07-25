@@ -19,7 +19,7 @@ from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH,
     QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
 from squeeze import squeeze_data
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
-    timed_command, total_pixels, original_basename, rm_encoded, dataset_img_info
+    timed_command, total_pixels, rename_duplicate, rm_encoded, dataset_img_info
 
 """
     Codecs' versions
@@ -158,11 +158,11 @@ def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -
 
 
 def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, float, float, float]:
-    """ Decodes the image and returns the process' metadata
+    """Decodes the image and returns the process' metadata
 
-    @param og_image_path:
-    @param encoded_path: Path to the image to be decoded
-    @return: CR, DS(MP/s), MSE, PSNR, SSIM regarding the compression applied to the image
+    @param encoded_path: Path to the encoded image (to be decoded)
+    @param og_image_path: Path to the original, lossless image
+    @return: CR, DS(MP/s), MSE, PSNR and SSIM regarding the compression applied to the image
     """
 
     encoded_extension: str = encoded_path.split(".")[-1]
@@ -181,7 +181,7 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
             [os.path.getsize(os.path.abspath(DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
         )
     else:
-        raise AssertionError("Bad state (use debugger)")
+        raise AssertionError("Bad state (bug).")
 
     match encoded_extension:
         case "jxl":
@@ -243,7 +243,7 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
             ds = pixels / (dt * 1e6)
 
         case _:
-            raise AssertionError(f"Unsupported extension for decoding: {encoded_extension}")
+            raise AssertionError(f"Unsupported extension for decoding: '{encoded_extension}'")
 
     # Read the output images w/ opencv
     if decoded_path.endswith("apng"):
@@ -269,8 +269,10 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
     return cr, ds, mse, psnr, ssim
 
 
-def custom_multiframe_decoding(decoded_path, encoded_extension):
+def custom_multiframe_decoding(decoded_path: str, encoded_extension: str):
     """Decodes all frames present in the dataset_compressed folder and outputs apng
+
+    Those frames are encoded by either avif or webp
 
     @param decoded_path: APNG output file name
     @param encoded_extension: reference to which codec is being used
@@ -286,7 +288,7 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
         case _:
             raise AssertionError(f"Illegal format used: '{encoded_extension}'")
 
-    # Execute decode command for all frames and collect DTs
+    # Execute decode command for all frames and collect DTs (decoding times)
     dt = 0
     frame_names: list[str] = []
     for i, frame in enumerate(os.listdir(DATASET_COMPRESSED_PATH)):
@@ -451,7 +453,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
     stats.to_csv(
-        original_basename(f"{PROCEDURE_RESULTS_FILE}.csv"), index=False
+        rename_duplicate(f"{PROCEDURE_RESULTS_FILE}.csv"), index=False
     )
 
 

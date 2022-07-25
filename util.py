@@ -111,7 +111,7 @@ def timed_command(stdin: str) -> float:
     start = time.time()
     p = Popen(stdin, shell=True, stdout=PIPE, stderr=PIPE)
     _, stderr = p.communicate(timeout=180)
-    ct = time.time() - start  # or extract_webp_ct(stderr)
+    ct = time.time() - start
     # Check for errors
     return_code: int = p.returncode
     if return_code != 0:
@@ -124,9 +124,7 @@ def timed_command(stdin: str) -> float:
 
 
 def total_pixels(target_image: str) -> int:
-    """Counts the number of pixels on an image
-
-    Count method: height * height
+    """Counts the number of pixels of an image
 
     @param target_image: Input image path
     @return: Number of pixels
@@ -142,14 +140,11 @@ def total_pixels(target_image: str) -> int:
 
         return height * width * depth
 
-    height, width = cv2.imread(target_image).shape[:2]
-    # Number of pixels in the image
-    pixels = height * width
-    return pixels
+    return cv2.imread(target_image, cv2.IMREAD_UNCHANGED).size
 
 
-def original_basename(intended_abs_filepath: str) -> str:
-    """Get an original filename given the absolute path
+def rename_duplicate(intended_abs_filepath: str) -> str:
+    """Finds an original filename if it is already taken
 
     Example - give path/to/filename.txt -> it already exists -> return path/to/filename_1.txt
 
@@ -171,7 +166,7 @@ def original_basename(intended_abs_filepath: str) -> str:
 
 
 def rm_encoded():
-    """Removes compressed files from a previous (probably unsuccessful) execution
+    """Removes compressed files from a previous execution
 
     """
     for file in os.listdir(DATASET_COMPRESSED_PATH):
