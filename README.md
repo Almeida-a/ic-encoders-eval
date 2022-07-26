@@ -11,8 +11,6 @@ medical imaging.
    1. [Setting up](#setting-up)
       1. [Hardware Requirements](#hardware-requirements)
       2. [Dependencies](#dependencies)
-      3. [For x86_64 versions](#for-x86_64-versions)
-      4. [Other instruction set versions](other-instruction-set-versions)
       5. [Dataset](#dataset)
    2. [Running](#running)
       1. [Main Pipeline](#main-pipeline)
@@ -49,8 +47,6 @@ Install the required libraries to run the pipeline:
 pip install -r requirements.txt
 ```
 
-#### For x86_64 versions
-
 ##### AVIF
 
 First, install the [rust](https://rust-lang.org/tools/install)
@@ -64,30 +60,16 @@ cargo install cavif
 ```
 
 ##### JPEG XL
-Currently, I use a recent build from the [master](https://github.com/libjxl/libjxl) branch, not present on the releases.
-
-Use a binary from version v0.7.0, build [ae95f45](https://github.com/libjxl/libjxl/commit/ae95f451e0d23a209fa22efac4771969a23dac99) (build from source).
-
-Nextly, add `cjxl`/`djxl` binaries to your `PATH` variable.
+Install from source using:
+```shell
+sudo ./build_jxl.sh
+```
 
 ##### WebP
-Run the following commands
-**if** you use bash:
+Install through apt:
 ```shell
-curl https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.2.1-linux-x86-64.tar.gz --output ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
-tar -C ~ -xzvf ~/Downloads/libwebp-1.2.1-linux-x86-64.tar.gz
-echo 'export WEBP_HOME="$HOME/libwebp-1.2.1-linux-x86-64"' >> ~/.bashrc
-echo 'export PATH="$WEBP_HOME/bin:$PATH"' >> ~/.bashrc
+sudo apt install webp
 ```
-If you use zshell, switch ~/.bashrc with ~/.zshrc.
-
-#### Other instruction set versions
-If you have versions other than x86_64,
-download the appropriate binaries for
-[JPEG XL](https://github.com/libjxl/libjxl) (you need to build from source)
-and [WebP](https://storage.googleapis.com/downloads.webmproject.org/releases/webp/index.html),
-extract and append the binaries' paths to your PATH variable following the example shown at
-the [x86_64](#for-x86_64-architectures) section.
 
 #### Dataset
 
