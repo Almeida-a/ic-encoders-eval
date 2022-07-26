@@ -11,7 +11,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE
+from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE, BODYPART
 from util import dataset_img_info, rename_duplicate
 
 
@@ -42,12 +42,13 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
     for filename in file_data.index.values:
         settings = filename.split("_")[-1]
         modality = dataset_img_info(filename, MODALITY)
+        body_part = dataset_img_info(filename, BODYPART)
         depth = dataset_img_info(filename, DEPTH)
         samples_per_pixel = dataset_img_info(filename, SAMPLES_PER_PIXEL)
         bits_per_sample = dataset_img_info(filename, BITS_PER_SAMPLE)
 
         # Dataframe containing only the data associated to the settings/characteristics at hand
-        regex = fr"{modality}_\w+_\w+_{samples_per_pixel}_{bits_per_sample}_{depth}(.apng)?(_\d+)?_{settings}"
+        regex = fr"{modality}_{body_part}_\w+_{samples_per_pixel}_{bits_per_sample}_{depth}(.apng)?(_\d+)?_{settings}"
 
         # Avoid re-doing the same operations
         if regex in used_regexs:
@@ -57,22 +58,24 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
 
         filter_df = file_data.filter(axis="index", regex=regex)
 
-        # Create settings and modality entry if they don't exist
+        # Create nested dictionary with groupings/filters
         if resume.get(settings) is None:
             resume[settings] = {}
         if resume[settings].get(modality) is None:
             resume[settings][modality] = {}
-        if resume[settings][modality].get(depth) is None:
-            resume[settings][modality][depth] = {}
-        if resume[settings][modality][depth].get(samples_per_pixel) is None:
-            resume[settings][modality][depth][samples_per_pixel] = {}
-        if resume[settings][modality][depth][samples_per_pixel].get(bits_per_sample) is None:
-            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = {}
+        if resume[settings][modality].get(body_part) is None:
+            resume[settings][modality][body_part] = {}
+        if resume[settings][modality][body_part].get(depth) is None:
+            resume[settings][modality][body_part][depth] = {}
+        if resume[settings][modality][body_part][depth].get(samples_per_pixel) is None:
+            resume[settings][modality][body_part][depth][samples_per_pixel] = {}
+        if resume[settings][modality][body_part][depth][samples_per_pixel].get(bits_per_sample) is None:
+            resume[settings][modality][body_part][depth][samples_per_pixel][bits_per_sample] = {}
         else:
             # Entry has already been filled, skip to avoid re-doing the operations
             continue
 
-        entry = resume[settings][modality][depth][samples_per_pixel][bits_per_sample]
+        entry = resume[settings][modality][body_part][depth][samples_per_pixel][bits_per_sample]
 
         # Gather statistics
         for metric in file_data.keys():
