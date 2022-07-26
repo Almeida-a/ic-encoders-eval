@@ -14,9 +14,10 @@ import matplotlib.pyplot as plt
 import pandas
 import pandas as pd
 
+import util
 from parameters import PROCEDURE_RESULTS_FILE, JPEG_EVAL_RESULTS_FILE
 
-WILDCARD_REGEX = r"\w+"
+WILDCARD_REGEX = r"[a-zA-Z0-9]+"
 
 WILDCARD: str = "*"
 
@@ -26,7 +27,7 @@ BARS_COLOR = "#007700"
 
 METRICS_DESCRIPTION = dict(
     ds="Decompression Speed", cs="Compression Speed", cr="Compression Ratio",
-    ssim="Structure Similarity", psnr="Peak Signal to Noise Ratio", mse="Mean Squared Error"
+    ssim="Structural Similarity", psnr="Peak Signal to Noise Ratio", mse="Mean Squared Error"
 )
 UNITS = dict(
     ds="MP/s", cs="MP/s"
@@ -283,30 +284,43 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     @param bps: Bits per sample
     @param compression_format: Compression format of the compression instances
     """
+    lgt_expr_regex = re.compile(r"<|>\d+")
+
     x_metric, y_metric = x_metric.lower(), y_metric.lower()
     if modality != WILDCARD:
         modality = modality.upper()
     compression_format = compression_format.lower()
 
-    chart_title = f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}"
+    chart_title = f"'{modality}' images, '{compression_format}' format, depth='{depth}', spp='{spp}', bps='{bps}'"
 
     results = pd.read_csv(raw_data_fname)
 
     if spp == WILDCARD:
-        spp = WILDCARD_REGEX
+        spp = r"\d+"
+    elif lgt_expr_regex.fullmatch(spp) is not None:
+        spp = util.number_lgt_regex(spp)
+
     if bps == WILDCARD:
-        bps = WILDCARD_REGEX
+        bps = r"\d+"
+    elif lgt_expr_regex.fullmatch(bps) is not None:
+        bps = util.number_lgt_regex(bps)
+
     if depth == WILDCARD:
-        depth = WILDCARD_REGEX
+        depth = r"\d+"
+    elif lgt_expr_regex.fullmatch(depth) is not None:
+        depth = util.number_lgt_regex(depth)
+
     if modality == WILDCARD:
         modality = WILDCARD_REGEX
     if compression_format == WILDCARD:
         compression_format = WILDCARD_REGEX
 
     results = results.set_index("filename")
+    regex = fr"{modality}_\w+_\w+_{spp}_{bps}_{depth}(_\d+)?(.apng)?_q\d+(.\d+)?(-e\d)?.{compression_format}"
+
     results = results.filter(
         axis="index",
-        regex=fr"{modality}_\w+_\w+_{spp}_{bps}_{depth}(_\d+)?_(.apng)?q\d+(.\d+)?(-e\d)?.{compression_format}"
+        regex=regex
     )
 
     if results.empty:
@@ -363,7 +377,7 @@ if __name__ == '__main__':
 
     EVALUATE = mode.METRIC
     EXPERIMENT = pip.MAIN
-    FORMAT = ic_format.JXL.name
+    FORMAT = ic_format.WEBP.name
 
     match EVALUATE, EXPERIMENT:
         case mode.IMAGE, pip.MAIN:
@@ -377,8 +391,8 @@ if __name__ == '__main__':
                                raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
                                compression_format="jpeg")
         case mode.METRIC, pip.MAIN:
-            metric_per_metric(x_metric="ssim", y_metric="ds",
-                              modality="CT", depth="1", spp="*", bps=WILDCARD,
+            metric_per_metric(x_metric="ssim", y_metric="cr",
+                              modality="SM", depth=">1", spp="*", bps=WILDCARD,
                               compression_format=FORMAT,
                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
         case mode.METRIC, pip.JPEG:
