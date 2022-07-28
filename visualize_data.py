@@ -81,7 +81,7 @@ def draw_lines(x: list[float], y: list[float],
     """
 
     # Plot the lists' points
-    plt.plot(x, y)
+    plt.plot(x, y, marker=".", linestyle='')
 
     if x_label != "":
         # Label to the x-axis
@@ -199,14 +199,12 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
 
 
 def save_fig(filename):
-    parent_dir = datetime.now().strftime(f"{EXPERIMENT.name}_{EVALUATE.name}_%d-%h-%y_%Hh%M")
-    path = f"images/graphs/{parent_dir}/{filename}"
+    path = f"images/graphs/{EXPERIMENT_ID}/{filename}"
 
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
 
     plt.savefig(fname=path)
-    print(f"Plot saved under '{os.path.dirname(path)}'.")
 
 
 def metric_per_quality(compression_format: str, metric: str, body_part: str = WILDCARD,
@@ -240,6 +238,7 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
     # Initialize x, y and err lists, respectively
     qualities, avg, std = [], [], []
     histogram = {}
+    size = 0  # Cardinality of the data (how many images are evaluated)
 
     for key, value in data.items():
         if not key.endswith(compression_format):
@@ -260,16 +259,19 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
         avg.append(stats["avg"])
         std.append(stats["std"])
 
+        size = stats["size"]
+
     if histogram == dict():
         print("No data found with the specified parameters!")
         exit(1)
 
-    filename: str = f"{modality.lower()}_{body_part.lower()}_{compression_format.lower()}_{depth}_{spp}_{bps}"\
-        if save else ""
+    filename: str = f"{modality.lower()}_{body_part.lower()}_" \
+                    f"{compression_format.lower()}_d{depth}_s{spp}_b{bps}_n{size}" if save else ""
 
     unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
     draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
-              title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}",
+              title=f"'{modality}-{body_part}' images, '{compression_format}' format,"
+                    f" depth='{depth}', spp='{spp}', bps='{bps}', #='{size}'",
               filename=filename)
 
 
@@ -299,7 +301,7 @@ def get_stats(compression_format: str, modality: str, depth: str, body_part: str
 
     return dict(
         min=min(metric_column), max=max(metric_column),
-        avg=np.mean(metric_column), std=np.std(metric_column)
+        avg=np.mean(metric_column), std=np.std(metric_column), size=metric_column.size
     )
 
 
@@ -329,11 +331,6 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
         body_part = body_part.upper()
     compression_format = compression_format.lower()
 
-    filename: str = f"{modality.lower()}_{body_part.lower()}_{compression_format.lower()}_{depth}_{spp}_{bps}"\
-        if save else f""
-    chart_title = f"'{modality}-{body_part}' images, '{compression_format}' format," \
-                  f" depth='{depth}', spp='{spp}', bps='{bps}'"
-
     results = pd.read_csv(raw_data_fname)
 
     results = filter_data(body_part, bps, compression_format, depth, modality, results, spp)
@@ -348,6 +345,11 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     zipped = sorted(zipped, key=lambda elem: elem[0])  # Sort by the x-axis
 
     x, y = list(zip(*zipped))
+
+    filename: str = f"{modality.lower()}_{body_part.lower()}_{compression_format.lower()}" \
+                    f"_d{depth}_s{spp}_b{bps}_n{results.shape[0]}" if save else f""
+    chart_title = f"'{modality}-{body_part}' images, '{compression_format}' format," \
+                  f" depth='{depth}', spp='{spp}', bps='{bps}', #='{results.shape[0]}'"
 
     draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
                title=chart_title, filename=filename)
@@ -429,6 +431,8 @@ def generate_charts():
     ic_format = ImageCompressionFormat
     formats = [format_.name.lower() for format_ in (ic_format.JXL, ic_format.WEBP, ic_format.AVIF)]
 
+    toggle_charts_save = False
+
     for modality, mod_filters in filters.items():
         for depth, body_part, spp, bps, format_ in itertools.product(
                 mod_filters["depth"], mod_filters["body_part"],
@@ -436,9 +440,12 @@ def generate_charts():
 
             generate_chart(body_part=body_part, bps=bps, depth=depth,
                            jpeg_raw_data_filename=jpeg_raw_data_filename,
-                           jpeg_squeezed_data_filename=jpeg_squeezed_data_filename, save=True,
+                           jpeg_squeezed_data_filename=jpeg_squeezed_data_filename, save=toggle_charts_save,
                            metric=METRIC, modality=modality, raw_data_filename=raw_data_filename, spp=spp,
                            squeezed_data_filename=squeezed_data_filename, y_metric=Y_METRIC, format_=format_)
+
+    if toggle_charts_save:
+        print("Chart files were saved!")
 
 
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
@@ -492,11 +499,12 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
 
 
 METRIC = "ssim"
-Y_METRIC = "ds"
+Y_METRIC = "cr"
 
 # Enums
 EVALUATE = GraphMode.METRIC
 EXPERIMENT = Pipeline.MAIN
+EXPERIMENT_ID: str = datetime.now().strftime(f"{EXPERIMENT.name}_{EVALUATE.name}_{METRIC.upper()}_%d-%h-%y_%Hh%M")
 
 
 if __name__ == '__main__':
