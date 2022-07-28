@@ -12,6 +12,7 @@ import os
 import re
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -80,6 +81,8 @@ def draw_lines(x: list[float], y: list[float],
     @param filename: Name of plot file. Leave empty if you don't want it written
     """
 
+    fig = plt.figure()
+
     # Plot the lists' points
     plt.plot(x, y, marker=".", linestyle='')
 
@@ -98,7 +101,7 @@ def draw_lines(x: list[float], y: list[float],
     if not filename:
         plt.show()
     else:
-        save_fig(filename)
+        save_fig(fig, filename)
 
 
 def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
@@ -143,7 +146,7 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
         tuple(df.filename)
     ))
 
-    ssim_y = [
+    y = [
         float(search_dataframe(df, key="filename", value=filename)[metric].values[0])
         for filename in filtered_fnames_x
     ]
@@ -151,7 +154,7 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
     filename: str = f"{modality.lower()}_{compression_format.lower()}" if save else ""
 
     # Draw graph
-    draw_lines(x=list(range(len(ssim_y))), y=ssim_y, y_label=metric,
+    draw_lines(x=list(range(len(y))), y=y, y_label=metric,
                title=f"Modality: {modality}, Format: {compression_format}", filename=filename)
 
 
@@ -172,6 +175,8 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     dict_sorted = dict(sorted(dict_unsorted.items(), key=lambda x: x[0], reverse=False))
     keys = dict_sorted.keys()
     values, errs = [[value[i] for value in dict_sorted.values()] for i in (0, 1)]
+
+    fig = plt.figure()
 
     plt.bar(keys, values, yerr=errs, color=BARS_COLOR)
     plt.xlabel(x_label.upper())
@@ -195,16 +200,17 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     if not filename:
         plt.show()
     else:
-        save_fig(filename)
+        save_fig(fig, filename)
 
 
-def save_fig(filename):
+def save_fig(fig: plt.Figure, filename: str):
     path = f"images/graphs/{EXPERIMENT_ID}/{filename}"
 
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
 
-    plt.savefig(fname=path)
+    fig.savefig(fname=path)
+    plt.close(fig)
 
 
 def metric_per_quality(compression_format: str, metric: str, body_part: str = WILDCARD,
@@ -311,6 +317,8 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
                       spp: str = WILDCARD, bps: str = WILDCARD,
                       compression_format: str = WILDCARD, save: bool = False):
     """Pair metrics with metrics and show relationship using a line graph
+
+    @todo add quality parameter, quality=WILDCARD
 
     @param save: Whether to save the figure or not
     @param x_metric: Metric displayed in the x-axis
@@ -431,7 +439,7 @@ def generate_charts():
     ic_format = ImageCompressionFormat
     formats = [format_.name.lower() for format_ in (ic_format.JXL, ic_format.WEBP, ic_format.AVIF)]
 
-    toggle_charts_save = False
+    toggle_charts_save: bool = True
 
     for modality, mod_filters in filters.items():
         for depth, body_part, spp, bps, format_ in itertools.product(
