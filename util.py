@@ -3,6 +3,7 @@
 """
 
 import os
+import re
 import time
 from subprocess import Popen, PIPE
 
@@ -90,6 +91,40 @@ def construct_cjxl(distance, effort, output_path, target_image):
     @return: Void
     """
     return f"cjxl {target_image} {output_path} " f"--distance={distance} --effort={effort} --quiet"
+
+
+def number_lgt_regex(expr: str) -> str:
+    """Parses lt/gt condition expression into a regex that validates such a number
+
+    @note function name could be read as - number lesser or greater than regular expression
+
+    @param expr: Bigger/Lesser than condition - e.g.: "<122", ">9".
+    @return: Regex that validates a number which passes the expression
+    """
+
+    bigger_than = re.compile(r">\d+")
+    lesser_than = re.compile(r"<\d+")
+
+    number = int(expr[1:])
+    digits_count = len(expr) - 1
+    last_digit = number % 10
+
+    if bigger_than.fullmatch(expr) is not None:
+        return fr"((\d{{{digits_count + 1}}}\d*)|(\d{{{digits_count - 1}}}[{last_digit + 1}-9]))"
+        # return re.compile(fr"""\
+        # (\d{{{digits_count + 1}}}\d*)\                  # More digits than the number
+        # |\                                              # or
+        # (\d{{{digits_count - 1}}}[{last_digit + 1}-9])  # Same #digits, but last one is greater than number % 10
+        # """, re.VERBOSE).pattern
+    elif lesser_than.fullmatch(expr) is not None:
+        return fr"((\d{{1,{digits_count - 1}}})|(\d{{{digits_count - 1}}}[0-{last_digit-1}]))"
+        # return fr"""\
+        # (\d{{1,{digits_count - 1}}})\                   # Less digits than the original number
+        # |\                                              # or
+        # (\d{{{digits_count - 1}}}[0-{last_digit-1}])    # Same #digits, but last one is lesser than number % 10
+        # """
+
+    raise AssertionError(f"This is not a lt/gt expression! '{expr}'")
 
 
 def timed_command(stdin: str) -> float:
