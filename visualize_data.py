@@ -11,6 +11,7 @@ import re
 from enum import Enum
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas
 import pandas as pd
 
@@ -153,7 +154,8 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
 def metric_per_quality(compression_format: str, metric: str, body_part: str = WILDCARD,
                        modality: str = WILDCARD, depth: str = WILDCARD,
                        spp: str = WILDCARD, bps: str = WILDCARD,
-                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".json"):
+                       squeezed_data_fname: str = PROCEDURE_RESULTS_FILE + ".json",
+                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
     @param body_part:
@@ -163,6 +165,7 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
     @param spp:
     @param bps:
     @param compression_format:
+    @param squeezed_data_fname:
     @param raw_data_fname:
     """
 
@@ -171,7 +174,7 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
     metric = metric.lower()
     compression_format = compression_format.lower()
 
-    with open(raw_data_fname) as f:
+    with open(squeezed_data_fname) as f:
         data: dict = json.load(f)
 
     # Initialize x, y and err lists, respectively
@@ -182,14 +185,15 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
         if not key.endswith(compression_format):
             continue
 
-        stats: dict[str, float] = get_stats(value, bps=bps, depth=depth,
-                                            metric=metric, modality=modality,
-                                            body_part=body_part, spp=spp)
-
         # histogram[quality] = metric.mean
         quality = key.split("-")[0]
-        quality = quality.replace("q", "d") if compression_format == "jxl" else quality
 
+        stats: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
+                                            metric=metric, modality=modality,
+                                            body_part=body_part, spp=spp, quality=quality,
+                                            raw_data_fname=raw_data_fname)
+
+        quality = quality.replace("q", "d") if compression_format == "jxl" else quality
         histogram[quality] = stats["avg"]
 
         qualities.append(quality)
@@ -205,90 +209,34 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
               title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
 
 
-def get_stats(data: dict, modality: str, depth: str, body_part: str,
-              spp: str, bps: str, metric: str) -> dict[str, float]:
+def get_stats(compression_format: str, modality: str, depth: str, body_part: str,
+              spp: str, bps: str, metric: str, quality: str = WILDCARD,
+              raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv") -> dict[str, float]:
     """Extract stats from the procedure_results*.json given the filters, allowing wildcard queries
 
-    @todo maybe refactor this function with regex filter
-
+    @param quality:
+    @param compression_format: Format in question
     @param body_part: Body part filter
-    @param data: Main data to be queried
     @param modality: Modality of the medical image
     @param depth: Number of frames of the image
     @param spp: Samples per pixel filter
     @param bps: Bits per sample filter
     @param metric: Evaluation parameter
+    @param raw_data_fname:
     @return: Dictionary containing statistics (min/max/avg/dev)
     """
 
-    # TODO refactor this. Use df.filter()
-    # ...
+    results = pd.read_csv(raw_data_fname)
 
-    keys: dict[str, list | tuple] = {
-        "modality": (*data.keys(),) if modality == WILDCARD else (modality,),
-        "bodypart": []
-    }
+    results = filter_data(body_part=body_part, bps=bps, compression_format=compression_format,
+                          depth=depth, modality=modality, results=results, spp=spp, quality=quality)
 
-    for key_modality_ in keys["modality"]:
-        keys["bodypart"].extend(
-            data[key_modality_].keys() if body_part == WILDCARD else [body_part]
-        )
-    keys["bodypart"] = tuple(set(keys["bodypart"]))
+    metric_column = results[metric].values
 
-    keys["depth"] = []
-    for key_modality_ in keys["modality"]:
-        for key_body_part_ in keys["bodypart"]:
-            keys["depth"].extend(
-                data[key_modality_][key_body_part_].keys()
-                if depth == WILDCARD else [depth]
-            )
-    keys["depth"] = tuple(set(keys["depth"]))
-
-    keys["spp"] = []
-    for key_modality_ in keys["modality"]:
-        for key_body_part_ in keys["bodypart"]:
-            for key_depth_ in keys["depth"]:
-                keys["spp"].extend(
-                    data[key_modality_][key_body_part_][key_depth_].keys()
-                    if spp == WILDCARD else [spp]
-                )
-    keys["spp"] = tuple(set(keys["spp"]))
-
-    keys["bps"] = []
-    for key_modality_ in keys["modality"]:
-        for key_body_part_ in keys["bodypart"]:
-            for key_depth_ in keys["depth"]:
-                for key_spp_ in keys["spp"]:
-                    keys["bps"].extend(
-                        data[key_modality_][key_body_part_][key_depth_][key_spp_].keys()
-                        if bps == WILDCARD else [bps]
-                    )
-    keys["bps"] = tuple(set(keys["bps"]))
-
-    result_stats: dict[str, float] = dict(min=float("inf"), max=.0, avg=.0, std=.0)
-
-    total_images: int = 0
-
-    for modality_ in keys["modality"]:
-        for body_part_ in keys["bodypart"]:
-            for depth_ in keys["depth"]:
-                for spp_ in keys["spp"]:
-                    for bps_ in keys["bps"]:
-                        stat = data[modality_][body_part_][depth_][spp_][bps_]
-
-                        result_stats["avg"] += stat[metric]["avg"] * stat["size"]
-                        result_stats["min"] = min(result_stats["min"], stat[metric]["min"])
-                        result_stats["max"] = max(result_stats["max"], stat[metric]["max"])
-
-                        total_images += stat["size"]
-
-    if total_images == 0:
-        print("No data found!")
-        exit(0)
-
-    result_stats["avg"] /= total_images
-
-    return result_stats
+    return dict(
+        min=min(metric_column), max=max(metric_column),
+        avg=np.mean(metric_column), std=np.std(metric_column)
+    )
 
 
 def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
@@ -308,7 +256,6 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     @param bps: Bits per sample
     @param compression_format: Compression format of the compression instances
     """
-    lgt_expr_regex = re.compile(r"<|>\d+")
 
     x_metric, y_metric = x_metric.lower(), y_metric.lower()
     if modality != WILDCARD:
@@ -322,33 +269,7 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
 
     results = pd.read_csv(raw_data_fname)
 
-    if spp == WILDCARD:
-        spp = r"\d+"
-    elif lgt_expr_regex.fullmatch(spp) is not None:
-        spp = util.number_lgt_regex(spp)
-
-    if bps == WILDCARD:
-        bps = r"\d+"
-    elif lgt_expr_regex.fullmatch(bps) is not None:
-        bps = util.number_lgt_regex(bps)
-
-    if depth == WILDCARD:
-        depth = r"\d+"
-    elif lgt_expr_regex.fullmatch(depth) is not None:
-        depth = util.number_lgt_regex(depth)
-
-    if modality == WILDCARD:
-        modality = WILDCARD_REGEX
-    if body_part == WILDCARD:
-        body_part = WILDCARD_REGEX
-    if compression_format == WILDCARD:
-        compression_format = WILDCARD_REGEX
-
-    results = results.set_index("filename")
-    results = results.filter(
-        axis="index",
-        regex=fr"{modality}_{body_part}_\w+_{spp}_{bps}_{depth}(_\d+)?(.apng)?_q\d+(.\d+)?(-e\d)?.{compression_format}"
-    )
+    results = filter_data(body_part, bps, compression_format, depth, modality, results, spp)
 
     if results.empty:
         print("No data found with the specified attributes!")
@@ -363,6 +284,38 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
 
     draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
                title=chart_title)
+
+
+def filter_data(body_part, bps, compression_format, depth, modality, results, spp, quality=WILDCARD):
+    lgt_expr_regex = re.compile(r"<|>\d+")
+    if spp == WILDCARD:
+        spp = r"\d+"
+    elif lgt_expr_regex.fullmatch(spp) is not None:
+        spp = util.number_lgt_regex(spp)
+    if bps == WILDCARD:
+        bps = r"\d+"
+    elif lgt_expr_regex.fullmatch(bps) is not None:
+        bps = util.number_lgt_regex(bps)
+    if depth == WILDCARD:
+        depth = r"\d+"
+    elif lgt_expr_regex.fullmatch(depth) is not None:
+        depth = util.number_lgt_regex(depth)
+    if modality == WILDCARD:
+        modality = WILDCARD_REGEX
+    if body_part == WILDCARD:
+        body_part = WILDCARD_REGEX
+    if compression_format == WILDCARD:
+        compression_format = WILDCARD_REGEX
+
+    if quality == WILDCARD:
+        quality = r"q\d+(.\d+)?"
+
+    results = results.set_index("filename")
+    results = results.filter(
+        axis="index",
+        regex=fr"{modality}_{body_part}_\w+_{spp}_{bps}_{depth}(_\d+)?(.apng)?_{quality}(-e\d)?.{compression_format}"
+    )
+    return results
 
 
 class GraphMode(Enum):
@@ -404,7 +357,7 @@ if __name__ == '__main__':
 
     EVALUATE = mode.QUALITY
     EXPERIMENT = pip.MAIN
-    FORMAT = ic_format.WEBP.name
+    FORMAT = ic_format.JXL.name
 
     match EVALUATE, EXPERIMENT:
         case mode.IMAGE, pip.MAIN:
@@ -412,10 +365,12 @@ if __name__ == '__main__':
         case mode.QUALITY, pip.MAIN:
             metric_per_quality(modality="CT", metric="ssim", depth="1", spp="*", bps=WILDCARD,
                                compression_format=FORMAT,
-                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2_bp.json")
+                               squeezed_data_fname=f"{PROCEDURE_RESULTS_FILE}_2_bp.json",
+                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.csv")
         case mode.QUALITY, pip.JPEG:
             metric_per_quality(modality="CT", depth="1", metric="ssim", spp="1",
-                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
+                               squeezed_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
+                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv",
                                compression_format="jpeg")
         case mode.METRIC, pip.MAIN:
             metric_per_metric(x_metric="ssim", y_metric="ds", body_part="BREAST",
