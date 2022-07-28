@@ -6,8 +6,11 @@
         fixed variables -> modality, compression format
 
 """
+import itertools
 import json
+import os
 import re
+from datetime import datetime
 from enum import Enum
 
 import matplotlib.pyplot as plt
@@ -35,8 +38,38 @@ UNITS = dict(
 )
 
 
+class GraphMode(Enum):
+    """Defines types of data visualization
+
+    """
+    METRIC = 1
+    QUALITY = 2
+    IMAGE = 3
+
+
+class Pipeline(Enum):
+    """Enum class: Identifies the pipelines
+
+    Whether if it's the main pipeline, which evaluates the recent compression formats,
+        or the jpeg, which evaluates that format.
+
+    """
+    MAIN = 1
+    JPEG = 2
+
+
+class ImageCompressionFormat(Enum):
+    """Enum class: Identifies the Image Compression Formats
+
+    """
+    JXL = 1
+    AVIF = 2
+    WEBP = 3
+    JPEG = 4
+
+
 def draw_lines(x: list[float], y: list[float],
-               x_label: str = "", y_label: str = "", title: str = ""):
+               x_label: str = "", y_label: str = "", title: str = "", filename: str = ""):
     """Draws a graph given a list of x and y values
 
     @param x: Independent axis vector
@@ -44,24 +77,28 @@ def draw_lines(x: list[float], y: list[float],
     @param x_label:
     @param y_label:
     @param title:
+    @param filename: Name of plot file. Leave empty if you don't want it written
     """
 
     # Plot the lists' points
     plt.plot(x, y)
 
     if x_label != "":
-        # Label to the x axis
+        # Label to the x-axis
         plt.xlabel(x_label)
 
     if y_label != "":
-        # Label to the y axis
+        # Label to the y-axis
         plt.ylabel(y_label)
 
     if title != "":
         # Title to the graph
         plt.title(title)
 
-    plt.show()
+    if not filename:
+        plt.show()
+    else:
+        save_fig(filename)
 
 
 def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
@@ -76,15 +113,18 @@ def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
 
 
 def metric_per_image(modality: str, metric: str, compression_format: str,
-                     raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
+                     raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv",
+                     save: bool = False):
     """Given a data file, display statistics of kind metric = f(quality)
 
     Line graph portraying metric = f(quality), given the modality and format
 
+    @todo Maybe use filter_data to narrow a bit the dataframe
     @param raw_data_fname: input data - file containing the procedure results
     @param modality: Used to filter the global data
     @param compression_format: Used to filter the global data
-    @param metric: Evaluates a characteristic of a file compression (e.g.: ratio, similarity, speed)
+    @param metric: Evaluates a characteristic of a file compression (e.g.: ratio, similarity, speed).
+    @param save: Whether to save or not the chart as file.
     """
     assert raw_data_fname.endswith(".csv"), f"Data source must be a csv file! Found \"{raw_data_fname}\"."
 
@@ -108,12 +148,15 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
         for filename in filtered_fnames_x
     ]
 
+    filename: str = f"{modality.lower()}_{compression_format.lower()}" if save else ""
+
     # Draw graph
-    draw_lines(x=list(range(len(ssim_y))), y=ssim_y, y_label=metric, title=f"Modality: {modality},"
-                                                                           f" Format: {compression_format}")
+    draw_lines(x=list(range(len(ssim_y))), y=ssim_y, y_label=metric,
+               title=f"Modality: {modality}, Format: {compression_format}", filename=filename)
 
 
-def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_label: str = "", title: str = ""):
+def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_label: str = "",
+              title: str = "", filename: str = ""):
     """Draw a histogram using matplotlib
 
     @param keys: Name of each bar
@@ -122,6 +165,7 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     @param x_label: Label for the x-axis
     @param y_label: Label for the y-axis
     @param title: Graph title
+    @param filename: save file name
     """
     # Sort the bars
     dict_unsorted = {keys[i]: (values[i], errs[i]) for i in range(len(keys))}
@@ -148,14 +192,29 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
         ymin=max(min_, 0)  # No metric falls bellow 0
     )
 
-    plt.show()
+    if not filename:
+        plt.show()
+    else:
+        save_fig(filename)
+
+
+def save_fig(filename):
+    parent_dir = datetime.now().strftime(f"{EXPERIMENT.name}_{EVALUATE.name}_%d-%h-%y_%Hh%M")
+    path = f"images/graphs/{parent_dir}/{filename}"
+
+    if not os.path.exists(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+
+    plt.savefig(fname=path)
+    print(f"Plot saved under '{os.path.dirname(path)}'.")
 
 
 def metric_per_quality(compression_format: str, metric: str, body_part: str = WILDCARD,
                        modality: str = WILDCARD, depth: str = WILDCARD,
                        spp: str = WILDCARD, bps: str = WILDCARD,
                        squeezed_data_fname: str = PROCEDURE_RESULTS_FILE + ".json",
-                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
+                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv",
+                       save: bool = False):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
     @param body_part:
@@ -167,6 +226,7 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
     @param compression_format:
     @param squeezed_data_fname:
     @param raw_data_fname:
+    @param save:
     """
 
     modality = modality.upper()
@@ -204,9 +264,13 @@ def metric_per_quality(compression_format: str, metric: str, body_part: str = WI
         print("No data found with the specified parameters!")
         exit(1)
 
+    filename: str = f"{modality.lower()}_{body_part.lower()}_{compression_format.lower()}_{depth}_{spp}_{bps}"\
+        if save else ""
+
     unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
     draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
-              title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}")
+              title=f"{modality} images, {compression_format} format, depth={depth}, spp={spp}, bps={bps}",
+              filename=filename)
 
 
 def get_stats(compression_format: str, modality: str, depth: str, body_part: str,
@@ -243,9 +307,10 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
                       body_part: str = WILDCARD,
                       modality: str = WILDCARD, depth: str = WILDCARD,
                       spp: str = WILDCARD, bps: str = WILDCARD,
-                      compression_format: str = WILDCARD):
+                      compression_format: str = WILDCARD, save: bool = False):
     """Pair metrics with metrics and show relationship using a line graph
 
+    @param save: Whether to save the figure or not
     @param x_metric: Metric displayed in the x-axis
     @param y_metric: Metric displayed in the y-axis
     @param raw_data_fname: File name containing the raw data to be processed
@@ -264,6 +329,8 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
         body_part = body_part.upper()
     compression_format = compression_format.lower()
 
+    filename: str = f"{modality.lower()}_{body_part.lower()}_{compression_format.lower()}_{depth}_{spp}_{bps}"\
+        if save else f""
     chart_title = f"'{modality}-{body_part}' images, '{compression_format}' format," \
                   f" depth='{depth}', spp='{spp}', bps='{bps}'"
 
@@ -283,10 +350,23 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
     x, y = list(zip(*zipped))
 
     draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
-               title=chart_title)
+               title=chart_title, filename=filename)
 
 
-def filter_data(body_part, bps, compression_format, depth, modality, results, spp, quality=WILDCARD):
+def filter_data(body_part: str, bps: str, compression_format: str,
+                depth: str, modality: str, results: pd.DataFrame, spp: str, quality=WILDCARD) -> pd.DataFrame:
+    """
+
+    @param body_part: Filter
+    @param bps: Bits per sample - filter
+    @param compression_format: Format - filter
+    @param depth: Depth - filter
+    @param modality: Filter
+    @param results: Dataframe formatted data
+    @param spp: Samples per pixel - filter
+    @param quality: Quality setting - filter
+    @return: Dataframe containing filtering data
+    """
     lgt_expr_regex = re.compile(r"<|>\d+")
     if spp == WILDCARD:
         spp = r"\d+"
@@ -318,69 +398,106 @@ def filter_data(body_part, bps, compression_format, depth, modality, results, sp
     return results
 
 
-class GraphMode(Enum):
-    """Defines types of data visualization
+def generate_charts():
 
-    """
-    METRIC = 1
-    QUALITY = 2
-    IMAGE = 3
+    raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
+    squeezed_data_filename = f"{PROCEDURE_RESULTS_FILE}_2_bp.json"
+    jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
+    jpeg_squeezed_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.json"
 
+    filters: dict[str, dict[str, list[str]]] = dict(
+        CT=dict(
+            depth=["1"],
+            body_part=["HEAD"],
+            spp=["1"],
+            bps=["12"],
+        ),
+        MG=dict(
+            depth=["1", "57", "58", "59"],
+            body_part=["BREAST"],
+            spp=["1"],
+            bps=["10"],
+        ),
+        SM=dict(
+            depth=["1", "2", "6", "24", "96", "384"],
+            body_part=["NA"],
+            spp=["3"],
+            bps=["8"],
+        ),
+    )
 
-class Pipeline(Enum):
-    """Enum class: Identifies the pipelines
-
-    Whether if it's the main pipeline, which evaluates the recent compression formats,
-        or the jpeg, which evaluates that format.
-
-    """
-    MAIN = 1
-    JPEG = 2
-
-
-class ImageCompressionFormat(Enum):
-    """Enum class: Identifies the Image Compression Formats
-
-    """
-    JXL = 1
-    AVIF = 2
-    WEBP = 3
-    JPEG = 4
-
-
-if __name__ == '__main__':
-
-    # Aliases
-    mode = GraphMode
-    pip = Pipeline
     ic_format = ImageCompressionFormat
+    formats = [format_.name.lower() for format_ in (ic_format.JXL, ic_format.WEBP, ic_format.AVIF)]
 
-    EVALUATE = mode.QUALITY
-    EXPERIMENT = pip.MAIN
-    FORMAT = ic_format.JXL.name
+    for modality, mod_filters in filters.items():
+        for depth, body_part, spp, bps, format_ in itertools.product(
+                mod_filters["depth"], mod_filters["body_part"],
+                mod_filters["spp"], mod_filters["bps"], formats):
+
+            generate_chart(body_part=body_part, bps=bps, depth=depth,
+                           jpeg_raw_data_filename=jpeg_raw_data_filename,
+                           jpeg_squeezed_data_filename=jpeg_squeezed_data_filename, save=True,
+                           metric=METRIC, modality=modality, raw_data_filename=raw_data_filename, spp=spp,
+                           squeezed_data_filename=squeezed_data_filename, y_metric=Y_METRIC, format_=format_)
+
+
+def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
+                   jpeg_squeezed_data_filename: str, metric: str, modality: str,
+                   raw_data_filename: str, spp: str, squeezed_data_filename: str,
+                   y_metric: str, format_: str, save: bool = False):
+    """
+
+    @param format_: Image compression format to be evaluated
+    @param body_part:
+    @param bps:
+    @param depth:
+    @param metric:
+    @param modality:
+    @param spp:
+    @param y_metric:
+    @param raw_data_filename:
+    @param squeezed_data_filename:
+    @param jpeg_raw_data_filename:
+    @param jpeg_squeezed_data_filename:
+    @param save:
+    @return:
+    """
 
     match EVALUATE, EXPERIMENT:
-        case mode.IMAGE, pip.MAIN:
-            metric_per_image(modality="CT", metric="ds", compression_format=FORMAT)  # for now, displays a line graph
-        case mode.QUALITY, pip.MAIN:
-            metric_per_quality(modality="CT", metric="ssim", depth="1", spp="*", bps=WILDCARD,
-                               compression_format=FORMAT,
-                               squeezed_data_fname=f"{PROCEDURE_RESULTS_FILE}_2_bp.json",
-                               raw_data_fname=f"{PROCEDURE_RESULTS_FILE}_2.csv")
-        case mode.QUALITY, pip.JPEG:
-            metric_per_quality(modality="CT", depth="1", metric="ssim", spp="1",
-                               squeezed_data_fname=f"{JPEG_EVAL_RESULTS_FILE}_1.json",
-                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv",
-                               compression_format="jpeg")
-        case mode.METRIC, pip.MAIN:
-            metric_per_metric(x_metric="ssim", y_metric="ds", body_part="BREAST",
-                              modality="MG", depth="1", spp="*", bps=WILDCARD,
-                              compression_format=FORMAT,
-                              raw_data_fname=f"{PROCEDURE_RESULTS_FILE}.csv")
-        case mode.METRIC, pip.JPEG:
-            metric_per_metric(x_metric="ssim", y_metric="cr", modality="CT", body_part="HEAD",
-                              depth="1", compression_format="jpeg", spp="1", bps=WILDCARD,
+        case GraphMode.IMAGE, Pipeline.MAIN:
+            metric_per_image(modality=modality, metric=metric,
+                             compression_format=format_, raw_data_fname=raw_data_filename, save=save)
+        case GraphMode.QUALITY, Pipeline.MAIN:
+            metric_per_quality(modality=modality, body_part=body_part, metric=metric, depth=depth, spp=spp, bps=bps,
+                               compression_format=format_,
+                               squeezed_data_fname=squeezed_data_filename,
+                               raw_data_fname=raw_data_filename, save=save)
+        case GraphMode.QUALITY, Pipeline.JPEG:
+            metric_per_quality(modality=modality, body_part=body_part, depth=depth, metric=metric, spp=spp, bps=bps,
+                               squeezed_data_fname=jpeg_squeezed_data_filename,
+                               raw_data_fname=jpeg_raw_data_filename,
+                               compression_format=ImageCompressionFormat.JPEG.name, save=save)
+        case GraphMode.METRIC, Pipeline.MAIN:
+            metric_per_metric(x_metric=metric, y_metric=y_metric, body_part=body_part,
+                              modality=modality, depth=depth, spp=spp, bps=bps,
+                              compression_format=format_,
+                              raw_data_fname=raw_data_filename, save=save)
+        case GraphMode.METRIC, Pipeline.JPEG:
+            metric_per_metric(x_metric=metric, y_metric=y_metric, modality=modality, body_part=body_part,
+                              depth=depth, compression_format="jpeg", spp="1", bps=bps, save=save,
                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv")
         case _:
             print("Invalid settings!")
             exit(1)
+
+
+METRIC = "ssim"
+Y_METRIC = "ds"
+
+# Enums
+EVALUATE = GraphMode.METRIC
+EXPERIMENT = Pipeline.MAIN
+
+
+if __name__ == '__main__':
+    generate_charts()
