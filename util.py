@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import time
-from subprocess import Popen, PIPE
 
 import cv2
 

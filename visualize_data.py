@@ -7,7 +7,6 @@
 
 """
 import itertools
-import json
 import os
 import re
 from datetime import datetime
@@ -265,10 +264,47 @@ def save_fig(fig: plt.Figure, filename: str):
     plt.close(fig)
 
 
+def get_qualities(raw_data_fname: str, compression_format: str) -> list:
+    """
+
+    @param raw_data_fname:
+    @param compression_format:
+    @return:
+    """
+
+    df = pd.read_csv(raw_data_fname)
+
+    value_matcher = re.compile(r"\d+")
+
+    if compression_format == "jxl":
+        matcher = re.compile(rf"\d+.\d+-e\d.{compression_format}")
+        value_matcher = re.compile(r"\d+.\d+")
+    elif compression_format in {"jpeg", "avif", "webp"}:
+        matcher = re.compile(rf"\d+-e\d.{compression_format}")
+    elif compression_format == "jpeg":
+        matcher = re.compile(rf"\d+.{compression_format}")
+    else:
+        raise AssertionError(f"Invalid compression format: '{compression_format}'!")
+
+    yielded_qualities: list = []
+
+    for filename in df["filename"].values:
+        extraction: list[str] = re.findall(matcher, filename)
+
+        if not extraction:
+            # empty - pattern not found
+            continue
+
+        quality: str = re.findall(value_matcher, extraction[0])[0]
+
+        if quality not in yielded_qualities:
+            yielded_qualities.append(quality)
+            yield quality
+
+
 def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
                        modality: str = WILDCARD, depth: str = WILDCARD,
                        spp: str = WILDCARD, bps: str = WILDCARD,
-                       squeezed_data_fname: str = PROCEDURE_RESULTS_FILE + ".json",
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv",
                        save: bool = False):
     """Draws bar graph for metric results (mean + std error) per quality setting
@@ -279,7 +315,6 @@ def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
     @param spp:
     @param bps:
     @param compression_format:
-    @param squeezed_data_fname:
     @param raw_data_fname:
     @param save:
     """
@@ -288,20 +323,11 @@ def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
     body_part = body_part.upper()
     compression_format = compression_format.lower()
 
-    with open(squeezed_data_fname) as f:
-        data: dict = json.load(f)
-
     # Initialize x, y and err lists, respectively
     qualities, avg, std = [], [], []
     size = 0  # Cardinality of the data (how many images are evaluated)
 
-    for key in data:
-        if not key.endswith(compression_format):
-            continue
-
-        # histogram[quality] = metric.mean
-        quality = key.split("-")[0]
-        quality = quality.replace('q', '')
+    for quality in get_qualities(raw_data_fname, compression_format):
 
         stats_y1: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
                                                metric=METRIC, modality=modality,
@@ -464,9 +490,7 @@ def filter_data(body_part: str, bps: str, compression_format: str,
 def generate_charts():
 
     raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
-    squeezed_data_filename = f"{PROCEDURE_RESULTS_FILE}_2_bp.json"
     jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
-    jpeg_squeezed_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.json"
 
     img_type_filters: dict[str, dict[str, list[str]]] = dict(
         CT=dict(
@@ -514,18 +538,17 @@ def generate_charts():
                 mod_filters["spp"], mod_filters["bps"], qualities):
             generate_chart(body_part=body_part, bps=bps, depth=depth,
                            jpeg_raw_data_filename=jpeg_raw_data_filename, quality=quality,
-                           jpeg_squeezed_data_filename=jpeg_squeezed_data_filename, save=TOGGLE_CHARTS_SAVE,
+                           save=TOGGLE_CHARTS_SAVE,
                            metric=METRIC, modality=modality, raw_data_filename=raw_data_filename, spp=spp,
-                           squeezed_data_filename=squeezed_data_filename, y_metric=Y_METRIC, format_=format_)
+                           y_metric=Y_METRIC, format_=format_)
 
     if TOGGLE_CHARTS_SAVE:
         print("Chart files were saved!")
 
 
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
-                   jpeg_squeezed_data_filename: str, metric: str, modality: str, quality: str,
-                   raw_data_filename: str, spp: str, squeezed_data_filename: str,
-                   y_metric: str, format_: str, save: bool = False):
+                   metric: str, modality: str, quality: str,
+                   raw_data_filename: str, spp: str, y_metric: str, format_: str, save: bool = False):
     """
 
     @param format_: Image compression format to be evaluated
@@ -537,9 +560,7 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
     @param spp:
     @param y_metric:
     @param raw_data_filename:
-    @param squeezed_data_filename:
     @param jpeg_raw_data_filename:
-    @param jpeg_squeezed_data_filename:
     @param save:
     @param quality:
     @return:
@@ -552,11 +573,9 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
         case GraphMode.QUALITY, Pipeline.MAIN:
             metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
                                compression_format=format_,
-                               squeezed_data_fname=squeezed_data_filename,
                                raw_data_fname=raw_data_filename, save=save)
         case GraphMode.QUALITY, Pipeline.JPEG:
             metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
-                               squeezed_data_fname=jpeg_squeezed_data_filename,
                                raw_data_fname=jpeg_raw_data_filename,
                                compression_format=ImageCompressionFormat.JPEG.name, save=save)
         case GraphMode.METRIC, Pipeline.MAIN:
@@ -573,6 +592,7 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
             exit(1)
 
 
+# TODO automate the adjusting of these metrics (only when mode==MAIN)
 METRIC = "ssim"
 Y_METRIC = "cr"
 
