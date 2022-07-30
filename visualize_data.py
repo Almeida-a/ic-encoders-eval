@@ -7,7 +7,6 @@
 
 """
 import itertools
-import json
 import os
 import re
 from datetime import datetime
@@ -22,7 +21,7 @@ import util
 from parameters import PROCEDURE_RESULTS_FILE, JPEG_EVAL_RESULTS_FILE, MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, \
     MAXIMUM_JXL_DISTANCE, MINIMUM_WEBP_QUALITY, MINIMUM_JPEG_QUALITY
 
-TOGGLE_CHARTS_SAVE = True
+TOGGLE_CHARTS_SAVE = False
 
 WILDCARD_REGEX = r"[a-zA-Z0-9]+"
 
@@ -30,7 +29,8 @@ WILDCARD: str = "*"
 
 MARGIN = .1  # ylim margin. e.g.: 10% margin
 
-BARS_COLOR = "#007700"
+DARK_GREEN = "#007700"
+DARK_PURPLE = "#4c0099"
 
 METRICS_DESCRIPTION = dict(
     ds="Decompression Speed", cs="Compression Speed", cr="Compression Ratio",
@@ -160,8 +160,8 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
                title=f"Modality: {modality}, Format: {compression_format}", filename=filename)
 
 
-def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_label: str = "",
-              title: str = "", filename: str = ""):
+def draw_bars(keys: list, values: list[int | float | tuple], errs: list[int | float | tuple] = None,
+              x_label: str = "", y_label: str = "", title: str = "", filename: str = "", **kwargs):
     """Draw a histogram using matplotlib
 
     @param keys: Name of each bar
@@ -173,36 +173,85 @@ def draw_bars(keys: list, values: list, errs: list = None, x_label: str = "", y_
     @param filename: save file name
     """
     # Sort the bars
-    dict_unsorted = {keys[i]: (values[i], errs[i]) for i in range(len(keys))}
-    dict_sorted = dict(sorted(dict_unsorted.items(), key=lambda x: x[0], reverse=False))
-    keys = dict_sorted.keys()
-    values, errs = [[value[i] for value in dict_sorted.values()] for i in (0, 1)]
+    keys, errs[0], errs[1], values[0], values[1] = sort_by_keys(keys, *errs, *values)
 
-    fig = plt.figure()
+    is_multi_bar = type(values[0]) is tuple
+    is_single_bar = type(values[0]) in {int, float}
 
-    plt.bar(keys, values, yerr=errs, color=BARS_COLOR)
-    plt.xlabel(x_label.upper())
-    plt.ylabel(y_label.upper())
+    if is_multi_bar:
+
+        bars_data = pd.DataFrame(
+            dict(
+                values1=values[0],
+                values2=values[1],
+                errors1=errs[0],
+                errors2=errs[1],
+            ), index=keys
+        )
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax2 = ax.twinx()
+
+        width = 0.4
+        bars_data["values1"].plot(kind='bar', ax=ax, color=DARK_GREEN, position=1, width=width)
+        bars_data["values2"].plot(kind='bar', ax=ax2, color=DARK_PURPLE, position=0, width=width)
+
+        ax.set_xlabel(x_label.upper())
+        ax.set_ylabel(y_label.upper(), color=DARK_GREEN)
+        ax2.set_ylabel(kwargs["y2_label"].upper(), color=DARK_PURPLE)
+
+        # Calculate ylims
+        ymax, ymin = calculate_ylims(values=bars_data["values1"].values, errs=bars_data["errors1"].values)
+        ax.set_ylim(ymax=ymax, ymin=ymin)
+        ymax, ymin = calculate_ylims(values=bars_data["values2"].values, errs=bars_data["errors2"].values)
+        ax2.set_ylim(ymax=ymax, ymin=ymin)
+
+    elif is_single_bar:
+        fig = plt.figure()
+
+        plt.bar(keys, values, yerr=errs, color=DARK_GREEN)
+
+        plt.xlabel(x_label.upper())
+        plt.ylabel(y_label.upper())
+
+        max_, min_ = calculate_ylims(errs, values)
+        plt.ylim(
+            ymax=max_,
+            ymin=max(min_, 0)  # No metric falls bellow 0
+        )
+    else:
+        raise AssertionError(f"Invalid bar `values` variable type: '{type(values)}'.")
     plt.title(title.upper())
-
-    min_: float = min(values[i] - errs[i] for i in range(len(values)))
-
-    maxes = [values[i] + errs[i] for i in range(len(values))]
-    maxes.remove(float("inf")) if float("inf") in maxes else None
-    max_: float = max(maxes)
-
-    min_ -= (max_ - min_) * MARGIN
-    max_ += (max_ - min_) * MARGIN
-
-    plt.ylim(
-        ymax=max_,
-        ymin=max(min_, 0)  # No metric falls bellow 0
-    )
 
     if not filename:
         plt.show()
     else:
         save_fig(fig, filename)
+
+
+def calculate_ylims(errs, values, allow_negatives: bool = False):
+    min_: float = min(values[i] - errs[i] for i in range(len(values)))
+    maxes: list[int | float] = [values[i] + errs[i] for i in range(len(values))]
+    maxes.remove(float("inf")) if float("inf") in maxes else None
+    max_: float = max(maxes)
+    min_ -= (max_ - min_) * MARGIN
+    max_ += (max_ - min_) * MARGIN
+
+    if not allow_negatives:
+        min_ = max(min_, 0)
+        max_ = max(max_, 0)
+
+    return max_, min_
+
+
+def sort_by_keys(*args) -> list:
+    """Sort all the lists by the first one
+
+    @return:
+    """
+    zipped = zip(*args)
+    zipped = list(sorted(zipped, key=lambda elem: elem[0], reverse=False))
+    return list(zip(*zipped))
 
 
 def save_fig(fig: plt.Figure, filename: str):
@@ -215,70 +264,98 @@ def save_fig(fig: plt.Figure, filename: str):
     plt.close(fig)
 
 
-def metric_per_quality(compression_format: str, metric: str, body_part: str = WILDCARD,
+def get_qualities(raw_data_fname: str, compression_format: str) -> list:
+    """
+
+    @param raw_data_fname:
+    @param compression_format:
+    @return:
+    """
+
+    df = pd.read_csv(raw_data_fname)
+
+    value_matcher = re.compile(r"\d+")
+
+    if compression_format == "jxl":
+        matcher = re.compile(rf"\d+.\d+-e\d.{compression_format}")
+        value_matcher = re.compile(r"\d+.\d+")
+    elif compression_format in {"jpeg", "avif", "webp"}:
+        matcher = re.compile(rf"\d+-e\d.{compression_format}")
+    elif compression_format == "jpeg":
+        matcher = re.compile(rf"\d+.{compression_format}")
+    else:
+        raise AssertionError(f"Invalid compression format: '{compression_format}'!")
+
+    yielded_qualities: list = []
+
+    for filename in df["filename"].values:
+        extraction: list[str] = re.findall(matcher, filename)
+
+        if not extraction:
+            # empty - pattern not found
+            continue
+
+        quality: str = re.findall(value_matcher, extraction[0])[0]
+
+        if quality not in yielded_qualities:
+            yielded_qualities.append(quality)
+            yield quality
+
+
+def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
                        modality: str = WILDCARD, depth: str = WILDCARD,
                        spp: str = WILDCARD, bps: str = WILDCARD,
-                       squeezed_data_fname: str = PROCEDURE_RESULTS_FILE + ".json",
                        raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv",
                        save: bool = False):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
     @param body_part:
     @param modality:
-    @param metric:
     @param depth:
     @param spp:
     @param bps:
     @param compression_format:
-    @param squeezed_data_fname:
     @param raw_data_fname:
     @param save:
     """
 
     modality = modality.upper()
     body_part = body_part.upper()
-    metric = metric.lower()
     compression_format = compression_format.lower()
-
-    with open(squeezed_data_fname) as f:
-        data: dict = json.load(f)
 
     # Initialize x, y and err lists, respectively
     qualities, avg, std = [], [], []
-    histogram = {}
     size = 0  # Cardinality of the data (how many images are evaluated)
 
-    for key, value in data.items():
-        if not key.endswith(compression_format):
-            continue
+    for quality in get_qualities(raw_data_fname, compression_format):
 
-        # histogram[quality] = metric.mean
-        quality = key.split("-")[0]
-        quality = quality.replace('q', '')
-
-        stats: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
-                                            metric=metric, modality=modality,
-                                            body_part=body_part, spp=spp, quality=quality,
-                                            raw_data_fname=raw_data_fname)
+        stats_y1: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
+                                               metric=METRIC, modality=modality,
+                                               body_part=body_part, spp=spp, quality=quality,
+                                               raw_data_fname=raw_data_fname)
+        stats_y2: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
+                                               metric=Y_METRIC, modality=modality,
+                                               body_part=body_part, spp=spp, quality=quality,
+                                               raw_data_fname=raw_data_fname)
 
         quality = quality.replace("q", "d") if compression_format == "jxl" else quality
-        histogram[quality] = stats["avg"]
 
         qualities.append(quality)
-        avg.append(stats["avg"])
-        std.append(stats["std"])
+        avg.append((stats_y1["avg"], stats_y2["avg"]))
+        std.append((stats_y1["std"], stats_y2["std"]))
 
-        size = stats["size"]
+        size = stats_y1["size"]
 
-    if histogram == dict():
-        print("No data found with the specified parameters!")
-        exit(1)
+    # Format avg & std
+    avg, std = (list(zip(*lst)) for lst in (avg, std))
 
     filename: str = f"{modality.lower()}_{body_part.lower()}_" \
                     f"{compression_format.lower()}_d{depth}_s{spp}_b{bps}_n{size}" if save else ""
 
-    unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
-    draw_bars(qualities, avg, std, x_label="Quality values", y_label=f"{METRICS_DESCRIPTION[metric]} {unit}",
+    unit = f"({UNITS.get(METRIC)})" if UNITS.get(METRIC) is not None else ""
+    unit2 = f"({UNITS.get(Y_METRIC)})" if UNITS.get(Y_METRIC) is not None else ""
+    draw_bars(qualities, avg, std, x_label="Quality values",
+              y_label=f"{METRICS_DESCRIPTION[METRIC]} {unit}", y2_label=f"{METRICS_DESCRIPTION[Y_METRIC]} {unit2}",
               title=f"'{modality}-{body_part}' images, '{compression_format}' format,"
                     f" depth='{depth}', spp='{spp}', bps='{bps}', #='{size}'",
               filename=filename)
@@ -413,9 +490,7 @@ def filter_data(body_part: str, bps: str, compression_format: str,
 def generate_charts():
 
     raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
-    squeezed_data_filename = f"{PROCEDURE_RESULTS_FILE}_2_bp.json"
     jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
-    jpeg_squeezed_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.json"
 
     img_type_filters: dict[str, dict[str, list[str]]] = dict(
         CT=dict(
@@ -463,18 +538,17 @@ def generate_charts():
                 mod_filters["spp"], mod_filters["bps"], qualities):
             generate_chart(body_part=body_part, bps=bps, depth=depth,
                            jpeg_raw_data_filename=jpeg_raw_data_filename, quality=quality,
-                           jpeg_squeezed_data_filename=jpeg_squeezed_data_filename, save=TOGGLE_CHARTS_SAVE,
+                           save=TOGGLE_CHARTS_SAVE,
                            metric=METRIC, modality=modality, raw_data_filename=raw_data_filename, spp=spp,
-                           squeezed_data_filename=squeezed_data_filename, y_metric=Y_METRIC, format_=format_)
+                           y_metric=Y_METRIC, format_=format_)
 
     if TOGGLE_CHARTS_SAVE:
         print("Chart files were saved!")
 
 
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
-                   jpeg_squeezed_data_filename: str, metric: str, modality: str, quality: str,
-                   raw_data_filename: str, spp: str, squeezed_data_filename: str,
-                   y_metric: str, format_: str, save: bool = False):
+                   metric: str, modality: str, quality: str,
+                   raw_data_filename: str, spp: str, y_metric: str, format_: str, save: bool = False):
     """
 
     @param format_: Image compression format to be evaluated
@@ -486,9 +560,7 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
     @param spp:
     @param y_metric:
     @param raw_data_filename:
-    @param squeezed_data_filename:
     @param jpeg_raw_data_filename:
-    @param jpeg_squeezed_data_filename:
     @param save:
     @param quality:
     @return:
@@ -499,13 +571,11 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
             metric_per_image(modality=modality, metric=metric,
                              compression_format=format_, raw_data_fname=raw_data_filename, save=save)
         case GraphMode.QUALITY, Pipeline.MAIN:
-            metric_per_quality(modality=modality, body_part=body_part, metric=metric, depth=depth, spp=spp, bps=bps,
+            metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
                                compression_format=format_,
-                               squeezed_data_fname=squeezed_data_filename,
                                raw_data_fname=raw_data_filename, save=save)
         case GraphMode.QUALITY, Pipeline.JPEG:
-            metric_per_quality(modality=modality, body_part=body_part, depth=depth, metric=metric, spp=spp, bps=bps,
-                               squeezed_data_fname=jpeg_squeezed_data_filename,
+            metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
                                raw_data_fname=jpeg_raw_data_filename,
                                compression_format=ImageCompressionFormat.JPEG.name, save=save)
         case GraphMode.METRIC, Pipeline.MAIN:
@@ -522,13 +592,15 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
             exit(1)
 
 
+# TODO automate the adjusting of these metrics (only when mode==MAIN)
 METRIC = "ssim"
 Y_METRIC = "cr"
 
 # Enums
-EVALUATE = GraphMode.METRIC
+EVALUATE = GraphMode.QUALITY
 EXPERIMENT = Pipeline.MAIN
-EXPERIMENT_ID: str = datetime.now().strftime(f"{EXPERIMENT.name}_{EVALUATE.name}_{METRIC.upper()}_%d-%h-%y_%Hh%M")
+EXPERIMENT_ID: str = datetime.now().strftime(f"{EXPERIMENT.name}_{EVALUATE.name}_"
+                                             f"{METRIC.upper()}_{Y_METRIC.upper()}_%d-%h-%y_%Hh%M")
 
 
 if __name__ == '__main__':

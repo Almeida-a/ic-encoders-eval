@@ -4,8 +4,8 @@
 
 import os
 import re
+import subprocess
 import time
-from subprocess import Popen, PIPE
 
 import cv2
 
@@ -130,6 +130,8 @@ def number_lgt_regex(expr: str) -> str:
 def timed_command(stdin: str) -> float:
     """Runs a given command on a subshell and records its execution time
 
+    @todo Use subprocess.run(stdin, check=True) instead
+
     Note: Execution timeout implemented to 60 seconds
 
     @param stdin: Used to run the subshell command
@@ -137,18 +139,8 @@ def timed_command(stdin: str) -> float:
     """
     # Execute command and time the CT
     start = time.time()
-    p = Popen(stdin, shell=True, stdout=PIPE, stderr=PIPE)
-    _, stderr = p.communicate(timeout=180)
-    ct = time.time() - start
-    # Check for errors
-    return_code: int = p.returncode
-    if return_code != 0:
-        print(f"Error code {return_code}, executing:"
-              f"\nStdIn -> {stdin}"
-              f"\nStdErr -> {stderr}")
-        exit(1)
-
-    return ct
+    subprocess.run(stdin, shell=True, check=True, timeout=180)
+    return time.time() - start
 
 
 def total_pixels(target_image: str) -> int:
