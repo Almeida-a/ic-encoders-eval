@@ -130,8 +130,6 @@ def number_lgt_regex(expr: str) -> str:
 def timed_command(stdin: str) -> float:
     """Runs a given command on a subshell and records its execution time
 
-    @todo Use subprocess.run(stdin, check=True) instead
-
     Note: Execution timeout implemented to 60 seconds
 
     @param stdin: Used to run the subshell command
@@ -139,7 +137,8 @@ def timed_command(stdin: str) -> float:
     """
     # Execute command and time the CT
     start = time.time()
-    subprocess.run(stdin, shell=True, check=True, timeout=180)
+    subprocess.run(stdin, shell=True, check=True, timeout=180,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return time.time() - start
 
 

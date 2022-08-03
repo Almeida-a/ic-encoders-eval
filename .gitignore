@@ -3,3 +3,6 @@ images
 
 procedure_results*
 jpeg_eval_results*
+
+*.7z
+/results_discussion.md
