@@ -224,3 +224,13 @@ def remove_last_dict_level(dictionary: dict) -> dict | list:
         dictionary[key] = remove_last_dict_level(dictionary[key])
 
     return dictionary
+
+
+def sort_by_keys(*args) -> list:
+    """Sort all the lists by the first one
+
+    @return: A list with the lists provided, each one ordered according to the first one
+    """
+    zipped = zip(*args)
+    zipped = list(sorted(zipped, key=lambda elem: float(elem[0]), reverse=False))
+    return list(zip(*zipped))

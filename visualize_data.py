@@ -6,11 +6,14 @@
         fixed variables -> modality, compression format
 
 """
+
 import itertools
 import json
 import os
 import re
+import tarfile
 from datetime import datetime
+
 from enum import Enum
 
 import matplotlib.pyplot as plt
@@ -21,6 +24,9 @@ import pandas as pd
 import util
 from parameters import PROCEDURE_RESULTS_FILE, JPEG_EVAL_RESULTS_FILE, MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, \
     MAXIMUM_JXL_DISTANCE, MINIMUM_WEBP_QUALITY, MINIMUM_JPEG_QUALITY
+from util import sort_by_keys
+
+NOW__STRFTIME = datetime.now().strftime("DT_%d-%h-%y_%Hh%M")
 
 TOGGLE_CHARTS_SAVE = True
 
@@ -72,8 +78,8 @@ class ImageCompressionFormat(Enum):
     JPEG = 4
 
 
-def draw_lines(x: list[float], y: list[float],
-               x_label: str = "", y_label: str = "", title: str = "", filename: str = ""):
+def draw_lines(x: list[float], y: list[float], x_label: str = "", y_label: str = "",
+               title: str = "", filename: str = "", **kwargs):
     """Draws a graph given a list of x and y values
 
     @param x: Independent axis vector
@@ -104,7 +110,7 @@ def draw_lines(x: list[float], y: list[float],
     if not filename:
         plt.show()
     else:
-        save_fig(fig, filename)
+        save_fig(fig, filename, **kwargs)
 
 
 def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
@@ -119,7 +125,7 @@ def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
 
 
 def metric_per_image(modality: str, metric: str, compression_format: str,
-                     raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
+                     raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv"):
     """Given a data file, display statistics of kind metric = f(quality)
 
     Line graph portraying metric = f(quality), given the modality and format
@@ -155,8 +161,8 @@ def metric_per_image(modality: str, metric: str, compression_format: str,
     filename: str = f"{modality.lower()}_{compression_format.lower()}" if TOGGLE_CHARTS_SAVE else ""
 
     # Draw graph
-    draw_lines(x=list(range(len(y))), y=y, y_label=metric,
-               title=f"Modality: {modality}, Format: {compression_format}", filename=filename)
+    draw_lines(x=list(range(len(y))), y=y, y_label=metric, title=f"Modality: {modality}, Format: {compression_format}",
+               filename=filename)
 
 
 def draw_bars(keys: list, values: list[int | float | tuple], errs: list[int | float | tuple] = None,
@@ -227,7 +233,7 @@ def draw_bars(keys: list, values: list[int | float | tuple], errs: list[int | fl
     if not filename:
         plt.show()
     else:
-        save_fig(fig, filename)
+        save_fig(fig, filename, **kwargs)
 
 
 def calculate_ylims(errs, values, allow_negatives: bool = False):
@@ -245,18 +251,9 @@ def calculate_ylims(errs, values, allow_negatives: bool = False):
     return max_, min_
 
 
-def sort_by_keys(*args) -> list:
-    """Sort all the lists by the first one
-
-    @return:
-    """
-    zipped = zip(*args)
-    zipped = list(sorted(zipped, key=lambda elem: float(elem[0]), reverse=False))
-    return list(zip(*zipped))
-
-
-def save_fig(fig: plt.Figure, filename: str):
-    path = f"images/graphs/{EXPERIMENT_ID}/{filename}.png"
+def save_fig(fig: plt.Figure, filename: str, **kwargs):
+    experiment_id = get_experiment_id(kwargs["metric"], kwargs["y_metric"])
+    path = f"images/graphs/{experiment_id}/{filename}.png"
 
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
@@ -303,12 +300,13 @@ def get_qualities(raw_data_fname: str, compression_format: str) -> list:
             yield quality
 
 
-def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
-                       modality: str = WILDCARD, depth: str = WILDCARD,
-                       spp: str = WILDCARD, bps: str = WILDCARD,
-                       raw_data_fname: str = PROCEDURE_RESULTS_FILE + ".csv"):
+def metric_per_quality(compression_format: str, metric: str, y_metric: str, body_part: str = WILDCARD,
+                       modality: str = WILDCARD, depth: str = WILDCARD, spp: str = WILDCARD, bps: str = WILDCARD,
+                       raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
+    @param y_metric:
+    @param metric:
     @param body_part:
     @param modality:
     @param depth:
@@ -329,11 +327,11 @@ def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
     for quality in get_qualities(raw_data_fname, compression_format):
 
         stats_y1: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
-                                               metric=METRIC, modality=modality,
+                                               metric=metric, modality=modality,
                                                body_part=body_part, spp=spp, quality=quality,
                                                raw_data_fname=raw_data_fname)
         stats_y2: dict[str, float] = get_stats(compression_format, bps=bps, depth=depth,
-                                               metric=Y_METRIC, modality=modality,
+                                               metric=y_metric, modality=modality,
                                                body_part=body_part, spp=spp, quality=quality,
                                                raw_data_fname=raw_data_fname)
 
@@ -351,13 +349,13 @@ def metric_per_quality(compression_format: str, body_part: str = WILDCARD,
     filename: str = f"{modality.lower()}_{body_part.lower()}_" \
                     f"d{depth}_s{spp}_b{bps}_n{size}_{compression_format.lower()}" if TOGGLE_CHARTS_SAVE else ""
 
-    unit = f"({UNITS.get(METRIC)})" if UNITS.get(METRIC) is not None else ""
-    unit2 = f"({UNITS.get(Y_METRIC)})" if UNITS.get(Y_METRIC) is not None else ""
+    unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
+    unit2 = f"({UNITS.get(y_metric)})" if UNITS.get(y_metric) is not None else ""
     draw_bars(qualities, avg, std, x_label="Quality values",
-              y_label=f"{METRICS_DESCRIPTION[METRIC]} {unit}", y2_label=f"{METRICS_DESCRIPTION[Y_METRIC]} {unit2}",
+              y_label=f"{METRICS_DESCRIPTION[metric]} {unit}", y2_label=f"{METRICS_DESCRIPTION[y_metric]} {unit2}",
               title=f"'{modality}-{body_part}' images, '{compression_format}' format,"
                     f" depth='{depth}', spp='{spp}', bps='{bps}', #='{size}'",
-              filename=filename)
+              filename=filename, metric=metric, y_metric=y_metric)
 
 
 def get_stats(compression_format: str, modality: str, depth: str, body_part: str,
@@ -437,7 +435,7 @@ def metric_per_metric(x_metric: str, y_metric: str, raw_data_fname: str,
                   f" depth='{depth}', spp='{spp}', bps='{bps}', q='{quality}', #='{results.shape[0]}'"
 
     draw_lines(x, y, x_label=METRICS_DESCRIPTION[x_metric], y_label=METRICS_DESCRIPTION[y_metric],
-               title=chart_title, filename=filename)
+               title=chart_title, filename=filename, metric=x_metric, y_metric=y_metric)
 
 
 def filter_data(body_part: str, bps: str, compression_format: str,
@@ -506,8 +504,7 @@ def get_attributes(squeezed_data_filename: str) -> dict:
     return nested_attrs
 
 
-def generate_charts():
-    print("Generating charts...")
+def generate_charts(metric: str = None, y_metric: str = None):
 
     raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
     jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
@@ -542,13 +539,8 @@ def generate_charts():
                         for quality in qualities:
                             generate_chart(body_part=body_part, bps=bps, depth=depth,
                                            jpeg_raw_data_filename=jpeg_raw_data_filename, quality=quality,
-                                           metric=METRIC, modality=modality, raw_data_filename=raw_data_filename,
-                                           spp=spp, y_metric=Y_METRIC, format_=format_)
-
-    if TOGGLE_CHARTS_SAVE:
-        # TODO after metrics TODO, save all folders in zip and define the zip file name
-        zip_name = ""
-        print(f"Chart files were saved to '{zip_name}'!")
+                                           metric=metric, modality=modality, raw_data_filename=raw_data_filename,
+                                           spp=spp, y_metric=y_metric, format_=format_)
 
 
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
@@ -575,20 +567,19 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
             metric_per_image(modality=modality, metric=metric,
                              compression_format=format_, raw_data_fname=raw_data_filename)
         case GraphMode.QUALITY, Pipeline.MAIN:
-            metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
-                               compression_format=format_,
-                               raw_data_fname=raw_data_filename)
+            metric_per_quality(compression_format=format_, metric=metric, y_metric=y_metric, body_part=body_part,
+                               modality=modality, depth=depth, spp=spp, bps=bps, raw_data_fname=raw_data_filename)
         case GraphMode.QUALITY, Pipeline.JPEG:
-            metric_per_quality(modality=modality, body_part=body_part, depth=depth, spp=spp, bps=bps,
-                               raw_data_fname=jpeg_raw_data_filename,
-                               compression_format=ImageCompressionFormat.JPEG.name)
+            metric_per_quality(compression_format=ImageCompressionFormat.JPEG.name, metric="ssim",
+                               y_metric="cr", body_part=body_part, modality=modality, depth=depth,
+                               spp=spp, bps=bps, raw_data_fname=jpeg_raw_data_filename)
         case GraphMode.METRIC, Pipeline.MAIN:
             metric_per_metric(x_metric=metric, y_metric=y_metric, body_part=body_part,
                               modality=modality, depth=depth, spp=spp, bps=bps,
                               compression_format=format_, quality=quality,
                               raw_data_fname=raw_data_filename)
         case GraphMode.METRIC, Pipeline.JPEG:
-            metric_per_metric(x_metric=metric, y_metric=y_metric, modality=modality, body_part=body_part,
+            metric_per_metric(x_metric="ssim", y_metric="cr", modality=modality, body_part=body_part,
                               depth=depth, compression_format="jpeg", spp="1", bps=bps, quality=quality,
                               raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv")
         case _:
@@ -596,16 +587,48 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
             exit(1)
 
 
-# TODO automate the adjusting of these metrics (only when mode==MAIN)
-METRIC = "ssim"
-Y_METRIC = "cr"
-
 # Enums
 EVALUATE = GraphMode.QUALITY
 EXPERIMENT = Pipeline.MAIN
-EXPERIMENT_ID: str = datetime.now().strftime(f"DT_%d-%h-%y_%Hh%M_{EXPERIMENT.name}_{EVALUATE.name}_"
-                                             f"{METRIC.upper()}_{Y_METRIC.upper()}")
+
+
+def get_experiment_id(metric: str = None, y_metric: str = None) -> str:
+    """
+
+    @param metric:
+    @param y_metric:
+    @return:
+    """
+    sub_experiment_name = ""
+    if metric and y_metric:
+        sub_experiment_name: str = f"_{metric.upper()}_{y_metric.upper()}"
+
+    return f"{NOW__STRFTIME}_{EXPERIMENT.name}_{EVALUATE.name}{sub_experiment_name}"
+
+
+def main():
+    zip_name = get_experiment_id()
+
+    print("Starting the charts generation process...")
+
+    if EXPERIMENT == Pipeline.MAIN:
+        for metric, y_metric in itertools.combinations(("ssim", "cr", "cs", "ds"), 2):
+            generate_charts(metric, y_metric)
+            if TOGGLE_CHARTS_SAVE:
+                sub_experiment_name = get_experiment_id(metric, y_metric)
+
+                with tarfile.open(f"{zip_name}.tar.gz", mode="w:gz") as tar:
+                    tar.add(f"images/graphs/{sub_experiment_name}", arcname=sub_experiment_name)
+
+                print(f"Added '{sub_experiment_name}' to '{zip_name}.tar.gz'!")
+    else:
+        generate_charts()
+
+    if TOGGLE_CHARTS_SAVE:
+        print(f"Chart files were saved to '{zip_name}'!")
+    else:
+        print("Finished displaying the graphs")
 
 
 if __name__ == '__main__':
-    generate_charts()
+    main()

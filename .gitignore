@@ -4,5 +4,11 @@ images
 procedure_results*
 jpeg_eval_results*
 
+# File compression
 *.7z
+*.gz
+*.xz
+*.zip
+*.rar
+
 /results_discussion.md
