@@ -7,6 +7,7 @@
 
 """
 import itertools
+import json
 import os
 import re
 from datetime import datetime
@@ -484,31 +485,35 @@ def filter_data(body_part: str, bps: str, compression_format: str,
     return results
 
 
+def get_attributes(squeezed_data_filename: str) -> dict:
+    """Extract nested attributes from each modality images
+
+    @param squeezed_data_filename: results.json file where the attributes will be based upon
+    @return:
+    """
+
+    with open(squeezed_data_filename, "r") as f:
+        squeezed_data: dict = json.load(f)
+
+    nested_attrs: dict = list(squeezed_data.values())[0]
+
+    # How many bottom levels are to be deleted. See util.remove_last_dict_level
+    remove_levels = 2
+
+    for _ in range(remove_levels):
+        nested_attrs = util.remove_last_dict_level(nested_attrs)
+
+    return nested_attrs
+
+
 def generate_charts():
+    print("Generating charts...")
 
     raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
     jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
 
-    img_type_filters: dict[str, dict[str, list[str]]] = dict(
-        CT=dict(
-            depth=["1"],
-            body_part=["HEAD"],
-            spp=["1"],
-            bps=["12"],
-        ),
-        MG=dict(
-            depth=["1", "57", "58", "59"],
-            body_part=["BREAST"],
-            spp=["1"],
-            bps=["10"],
-        ),
-        SM=dict(
-            depth=["1", "2", "6", "24", "96", "384"],
-            body_part=["NA"],
-            spp=["3"],
-            bps=["8"],
-        ),
-    )
+    squeezed_data_filename = f"{PROCEDURE_RESULTS_FILE}_2_bp.json"
+    img_type_filters: dict[str, dict[str, list[str]]] = get_attributes(squeezed_data_filename)
 
     match EXPERIMENT:
         case Pipeline.MAIN:
@@ -530,16 +535,20 @@ def generate_charts():
 
     for (format_, qualities), (modality, mod_filters) in itertools.product(
             format_qualities.items(), img_type_filters.items()):
-        for depth, body_part, spp, bps, quality in itertools.product(
-                mod_filters["depth"], mod_filters["body_part"],
-                mod_filters["spp"], mod_filters["bps"], qualities):
-            generate_chart(body_part=body_part, bps=bps, depth=depth,
-                           jpeg_raw_data_filename=jpeg_raw_data_filename, quality=quality,
-                           metric=METRIC, modality=modality, raw_data_filename=raw_data_filename, spp=spp,
-                           y_metric=Y_METRIC, format_=format_)
+        for body_part, below_body_part in mod_filters.items():
+            for depth, below_depth in below_body_part.items():
+                for spp, below_spp in below_depth.items():
+                    for bps in below_spp:
+                        for quality in qualities:
+                            generate_chart(body_part=body_part, bps=bps, depth=depth,
+                                           jpeg_raw_data_filename=jpeg_raw_data_filename, quality=quality,
+                                           metric=METRIC, modality=modality, raw_data_filename=raw_data_filename,
+                                           spp=spp, y_metric=Y_METRIC, format_=format_)
 
     if TOGGLE_CHARTS_SAVE:
-        print("Chart files were saved!")
+        # TODO after metrics TODO, save all folders in zip and define the zip file name
+        zip_name = ""
+        print(f"Chart files were saved to '{zip_name}'!")
 
 
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,

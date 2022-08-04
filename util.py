@@ -203,3 +203,24 @@ def dataset_img_info(target_image: str, keyword: int) -> str:
     if keyword == DEPTH:
         return retval.replace(".apng", "")
     return retval
+
+
+def remove_last_dict_level(dictionary: dict) -> dict | list:
+    """Recursive function to remove the last level of a (tree-like) nested dictionary
+
+    @note If there is but one non-dict type value in a level, that one is removed
+
+    @param dictionary:
+    @return:
+    """
+
+    for key in dictionary:
+        # Stop condition
+        if type(dictionary[key]) != dict:
+            dictionary = list(dictionary.keys())
+            break
+
+        # Recursive call
+        dictionary[key] = remove_last_dict_level(dictionary[key])
+
+    return dictionary

@@ -499,16 +499,17 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     return outfile_name, output_path
 
 
-if __name__ == '__main__':
+def main():
     check_codecs()
-
     # Create paths
     if not os.path.exists(DATASET_PATH):
         os.makedirs(DATASET_PATH)
     if not os.path.exists(DATASET_COMPRESSED_PATH):
         os.makedirs(DATASET_COMPRESSED_PATH)
-
     rm_encoded()
-
     bulk_compress(jxl=True, avif=True, webp=True)
     squeeze_data(PROCEDURE_RESULTS_FILE)
+
+
+if __name__ == '__main__':
+    main()

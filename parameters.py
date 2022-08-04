@@ -12,8 +12,8 @@ LOSSLESS_EXTENSION: str = ".png"
 
 PROCEDURE_RESULTS_FILE: str = "procedure_results"
 JPEG_EVAL_RESULTS_FILE: str = "jpeg_eval_results"
-DATASET_PATH: str = "images/dataset/"
-DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"
+DATASET_PATH: str = "images/dataset/"  # TODO move this to /tmp
+DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"  # TODO move this to /tmp
 DATASET_DICOM_PATH: str = "images/dataset_dicom/"
 
 # Info flags
