@@ -7,15 +7,16 @@ Aggregates the results by quality-effort configuration.
 
 import json
 import os
+from pathlib import PosixPath
 
 import numpy as np
 import pandas as pd
 
-from parameters import PROCEDURE_RESULTS_FILE, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE, BODYPART
-from util import dataset_img_info, rename_duplicate
+from parameters import PathParameters, MODALITY, DEPTH, SAMPLES_PER_PIXEL, BITS_PER_SAMPLE, BODYPART
+from util import dataset_img_info, rename_duplicate, mkdir_if_not_exists
 
 
-def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
+def squeeze_data(results_path: str = PathParameters.PROCEDURE_RESULTS_PATH):
     """Digests raw compression stats into condensed stats.
 
     Condensed stats:
@@ -23,10 +24,11 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
      * data is saved under {parameters.PROCEDURE_RESULTS_FILE}.json
     """
 
+    results_parent_dir = str(PosixPath(results_path).parent)
     ordered_proc_res = sorted(filter(
-        lambda file: file.startswith(results_file) and file.endswith(".csv"),
-        os.listdir())
-    )
+        lambda file: file.startswith(results_path) and file.endswith(".csv"),
+        (f'{results_parent_dir}/' + file for file in os.listdir(results_parent_dir))
+    ))
 
     latest_procedure_results = ordered_proc_res[-1]
 
@@ -58,7 +60,7 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
 
         filter_df = file_data.filter(axis="index", regex=regex)
 
-        # Create nested dictionary with groupings/filters
+        # Create nested dictionary with groupings/filters TODO make this pretty
         if resume.get(settings) is None:
             resume[settings] = {}
         if resume[settings].get(modality) is None:
@@ -89,10 +91,12 @@ def squeeze_data(results_file: str = PROCEDURE_RESULTS_FILE):
             )
         entry["size"] = filter_df.shape[0]
 
+    mkdir_if_not_exists(results_path, regard_parent=True)
+
     # Save dict to a json
-    with open(rename_duplicate(f"{results_file}.json"), "w") as out_file:
+    with open(rename_duplicate(f"{results_path}.json"), "w") as out_file:
         json.dump(resume, out_file, indent=4)
 
 
 if __name__ == '__main__':
-    squeeze_data(PROCEDURE_RESULTS_FILE)
+    squeeze_data(PathParameters.PROCEDURE_RESULTS_PATH)

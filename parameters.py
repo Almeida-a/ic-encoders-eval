@@ -6,15 +6,24 @@ This script includes configuration values to the experiment including, but not l
  * the dataset path
  * The lossless encoding format of the evaluation input images
 """
+
+
 from enum import Enum
+
 
 LOSSLESS_EXTENSION: str = ".png"
 
-PROCEDURE_RESULTS_FILE: str = "procedure_results"
-JPEG_EVAL_RESULTS_FILE: str = "jpeg_eval_results"
-DATASET_PATH: str = "images/dataset/"  # TODO move this to /tmp
-DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"  # TODO move this to /tmp
-DATASET_DICOM_PATH: str = "images/dataset_dicom/"
+PREFIX: str = "/tmp/"
+
+
+class PathParameters:
+    PROCEDURE_RESULTS_PATH: str = "procedure_results"
+    JPEG_EVAL_RESULTS_PATH: str = "jpeg_eval_results"
+    DATASET_PATH: str = "images/dataset/"
+    DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"
+    DATASET_DICOM_PATH: str = "images/dataset_dicom/"
+    GRAPHS_PATH = f"{PREFIX}images/graphs/"
+
 
 # Info flags
 JXL_SUPPORTED_VERSIONS: tuple = ("0.6.1",)
@@ -23,7 +32,6 @@ AVIF_DECODE_SUPPORTED_VERSIONS: tuple = ("0.2.2",)
 WEBP_SUPPORTED_VERSIONS: tuple = ("0.4.1",)
 
 
-# Results column names
 class ResultsColumnNames(Enum):
     """Defines the names of the columns from pipeline result csv files
 

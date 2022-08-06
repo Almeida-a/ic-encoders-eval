@@ -6,11 +6,14 @@ import os
 import re
 import subprocess
 import time
+from pathlib import PosixPath
 
 import cv2
+import pydicom
+from pydicom.errors import InvalidDicomError
 
 from custom_apng import get_apng_frames_resolution, get_apng_depth
-from parameters import DATASET_COMPRESSED_PATH, DEPTH
+from parameters import PathParameters, DEPTH
 
 
 def construct_djxl(decoded_path, target_image):
@@ -188,8 +191,8 @@ def rm_encoded():
     """Removes compressed files from a previous execution
 
     """
-    for file in os.listdir(DATASET_COMPRESSED_PATH):
-        os.remove(os.path.abspath(DATASET_COMPRESSED_PATH + file))
+    for file in os.listdir(PathParameters.DATASET_COMPRESSED_PATH):
+        os.remove(os.path.abspath(PathParameters.DATASET_COMPRESSED_PATH + file))
 
 
 def dataset_img_info(target_image: str, keyword: int) -> str:
@@ -200,9 +203,7 @@ def dataset_img_info(target_image: str, keyword: int) -> str:
     @return: Attribute value for the image
     """
     retval = os.path.basename(target_image).split("_")[keyword]
-    if keyword == DEPTH:
-        return retval.replace(".apng", "")
-    return retval
+    return retval.replace(".apng", "") if keyword == DEPTH else retval
 
 
 def remove_last_dict_level(dictionary: dict) -> dict | list:
@@ -234,3 +235,36 @@ def sort_by_keys(*args) -> list:
     zipped = zip(*args)
     zipped = list(sorted(zipped, key=lambda elem: float(elem[0]), reverse=False))
     return list(zip(*zipped))
+
+
+def is_file_a_dicom(file):
+    """
+    Check whether a given file is of type DICOM
+
+    :param file: path to the file to identify
+     :type file: str
+
+    :return: True if the file is DICOM, False otherwise
+     :rtype: bool
+
+    """
+
+    try:
+        pydicom.read_file(file, stop_before_pixels=True)
+    except InvalidDicomError:
+        return False
+    return True
+
+
+def mkdir_if_not_exists(path: str, regard_parent: bool = False):
+    """Create directory if the one in the path provided does not exist
+
+    @param path:
+    @param regard_parent: Evaluate parent directory instead
+    @return:
+    """
+    if regard_parent:
+        path = str(PosixPath(path).parent)
+
+    if os.path.isdir(path) and not os.path.exists(path):
+        os.makedirs(path)

@@ -12,9 +12,11 @@ import json
 import os
 import re
 import tarfile
+from argparse import ArgumentParser, Namespace
 from datetime import datetime
 
 from enum import Enum
+from pathlib import PosixPath
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,11 +24,13 @@ import pandas
 import pandas as pd
 
 import util
-from parameters import PROCEDURE_RESULTS_FILE, JPEG_EVAL_RESULTS_FILE, MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, \
-    MAXIMUM_JXL_DISTANCE, MINIMUM_WEBP_QUALITY, MINIMUM_JPEG_QUALITY
+from parameters import MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE,\
+    MINIMUM_WEBP_QUALITY, MINIMUM_JPEG_QUALITY, PathParameters
 from util import sort_by_keys
 
 NOW__STRFTIME = datetime.now().strftime("DT_%d-%h-%y_%Hh%M")
+
+TITLE_PAD = 12.5
 
 TOGGLE_CHARTS_SAVE = True
 
@@ -78,6 +82,11 @@ class ImageCompressionFormat(Enum):
     JPEG = 4
 
 
+# Enums
+EVALUATE = GraphMode.QUALITY
+EXPERIMENT = Pipeline.MAIN
+
+
 def draw_lines(x: list[float], y: list[float], x_label: str = "", y_label: str = "",
                title: str = "", filename: str = "", **kwargs):
     """Draws a graph given a list of x and y values
@@ -105,7 +114,7 @@ def draw_lines(x: list[float], y: list[float], x_label: str = "", y_label: str =
 
     if title != "":
         # Title to the graph
-        plt.title(title)
+        plt.title(title, pad=TITLE_PAD)
 
     if not filename:
         plt.show()
@@ -125,7 +134,7 @@ def search_dataframe(df: pd.DataFrame, key: str, value: str) -> pd.DataFrame:
 
 
 def metric_per_image(modality: str, metric: str, compression_format: str,
-                     raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv"):
+                     raw_data_fname: str = f"{PathParameters.PROCEDURE_RESULTS_PATH}.csv"):
     """Given a data file, display statistics of kind metric = f(quality)
 
     Line graph portraying metric = f(quality), given the modality and format
@@ -228,7 +237,7 @@ def draw_bars(keys: list, values: list[int | float | tuple], errs: list[int | fl
         )
     else:
         raise AssertionError(f"Invalid bar `values` variable type: '{type(values)}'.")
-    plt.title(title.upper())
+    plt.title(title.upper(), pad=TITLE_PAD)
 
     if not filename:
         plt.show()
@@ -253,7 +262,7 @@ def calculate_ylims(errs, values, allow_negatives: bool = False):
 
 def save_fig(fig: plt.Figure, filename: str, **kwargs):
     experiment_id = get_experiment_id(kwargs["metric"], kwargs["y_metric"])
-    path = f"images/graphs/{experiment_id}/{filename}.png"
+    path = f"{PathParameters.GRAPHS_PATH}{experiment_id}/{filename}.png"
 
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
@@ -300,9 +309,9 @@ def get_qualities(raw_data_fname: str, compression_format: str) -> list:
             yield quality
 
 
-def metric_per_quality(compression_format: str, metric: str, y_metric: str, body_part: str = WILDCARD,
+def metric_per_quality(compression_format: str, metric: str = "ssim", y_metric: str = "cr", body_part: str = WILDCARD,
                        modality: str = WILDCARD, depth: str = WILDCARD, spp: str = WILDCARD, bps: str = WILDCARD,
-                       raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv"):
+                       raw_data_fname: str = f"{PathParameters.PROCEDURE_RESULTS_PATH}.csv"):
     """Draws bar graph for metric results (mean + std error) per quality setting
 
     @param y_metric:
@@ -360,7 +369,7 @@ def metric_per_quality(compression_format: str, metric: str, y_metric: str, body
 
 def get_stats(compression_format: str, modality: str, depth: str, body_part: str,
               spp: str, bps: str, metric: str, quality: str = WILDCARD,
-              raw_data_fname: str = f"{PROCEDURE_RESULTS_FILE}.csv") -> dict[str, float]:
+              raw_data_fname: str = f"{PathParameters.PROCEDURE_RESULTS_PATH}.csv") -> dict[str, float]:
     """Extract stats from the procedure_results*.json given the filters, allowing wildcard queries
 
     @param quality:
@@ -505,11 +514,20 @@ def get_attributes(squeezed_data_filename: str) -> dict:
 
 
 def generate_charts(metric: str = None, y_metric: str = None):
+    """Generate charts comparing 2 metrics
 
-    raw_data_filename = f"{PROCEDURE_RESULTS_FILE}_2.csv"
-    jpeg_raw_data_filename = f"{JPEG_EVAL_RESULTS_FILE}.csv"
+    Charts are grouped by all possible images attributes.
 
-    squeezed_data_filename = f"{PROCEDURE_RESULTS_FILE}_2_bp.json"
+    @param metric: Metric 1
+    @param y_metric: Metric 2
+    @return: None, but writes a folder with the generated charts
+    """
+    # sourcery skip: use-itertools-product
+
+    raw_data_filename = f"{PathParameters.PROCEDURE_RESULTS_PATH}_2.csv"
+    jpeg_raw_data_filename = f"{PathParameters.JPEG_EVAL_RESULTS_PATH}.csv"
+
+    squeezed_data_filename = f"{PathParameters.PROCEDURE_RESULTS_PATH}_2_bp.json"
     img_type_filters: dict[str, dict[str, list[str]]] = get_attributes(squeezed_data_filename)
 
     match EXPERIMENT:
@@ -546,7 +564,7 @@ def generate_charts(metric: str = None, y_metric: str = None):
 def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename: str,
                    metric: str, modality: str, quality: str,
                    raw_data_filename: str, spp: str, y_metric: str, format_: str):
-    """
+    """Generate a single chart
 
     @param format_: Image compression format to be evaluated
     @param body_part:
@@ -581,15 +599,10 @@ def generate_chart(body_part: str, bps: str, depth: str, jpeg_raw_data_filename:
         case GraphMode.METRIC, Pipeline.JPEG:
             metric_per_metric(x_metric="ssim", y_metric="cr", modality=modality, body_part=body_part,
                               depth=depth, compression_format="jpeg", spp="1", bps=bps, quality=quality,
-                              raw_data_fname=f"{JPEG_EVAL_RESULTS_FILE}.csv")
+                              raw_data_fname=f"{PathParameters.JPEG_EVAL_RESULTS_PATH}.csv")
         case _:
             print("Invalid settings!")
             exit(1)
-
-
-# Enums
-EVALUATE = GraphMode.QUALITY
-EXPERIMENT = Pipeline.MAIN
 
 
 def get_experiment_id(metric: str = None, y_metric: str = None) -> str:
@@ -606,29 +619,58 @@ def get_experiment_id(metric: str = None, y_metric: str = None) -> str:
     return f"{NOW__STRFTIME}_{EXPERIMENT.name}_{EVALUATE.name}{sub_experiment_name}"
 
 
-def main():
-    zip_name = get_experiment_id()
+def main_charts_gen(zip_path: str):
+    """Prepares the metrics and writes the charts results to tar.gz
 
+    @param zip_path: Path to the gzip which is going to hold the results
+    """
     print("Starting the charts generation process...")
 
+    # TODO obtain the metrics in a dynamic way (in the respective .csv file)
+    #  And exclude mse and psnr when EXP is MAIN
+    metrics = ("ssim", "cr", "cs", "ds") if EXPERIMENT == Pipeline.MAIN else ("ssim", "cr")
     if EXPERIMENT == Pipeline.MAIN:
-        for metric, y_metric in itertools.combinations(("ssim", "cr", "cs", "ds"), 2):
+
+        for metric, y_metric in itertools.combinations(metrics, 2):
             generate_charts(metric, y_metric)
             if TOGGLE_CHARTS_SAVE:
                 sub_experiment_name = get_experiment_id(metric, y_metric)
 
-                with tarfile.open(f"{zip_name}.tar.gz", mode="w:gz") as tar:
-                    tar.add(f"images/graphs/{sub_experiment_name}", arcname=sub_experiment_name)
+                with tarfile.open(f"{zip_path}.tar.gz", mode="w:gz") as tar:
+                    tar.add(f"{PathParameters.GRAPHS_PATH}{sub_experiment_name}", arcname=sub_experiment_name)
 
-                print(f"Added '{sub_experiment_name}' to '{zip_name}.tar.gz'!")
+                print(f"Added '{sub_experiment_name}' to the gzip!")
     else:
-        generate_charts()
-
+        for metric, y_metric in itertools.combinations(metrics, 2):
+            generate_charts(metric, y_metric)
     if TOGGLE_CHARTS_SAVE:
-        print(f"Chart files were saved to '{zip_name}'!")
+        print(f"Chart files were saved to '{zip_path}.tar.gz'!")
     else:
         print("Finished displaying the graphs")
 
 
+def main(args: Namespace):
+
+    assert args.zip_path.is_dir(), f"Path '{args.zip_path}' is not a directory!"
+    util.mkdir_if_not_exists(args.zip_path)
+    zip_path: str = os.path.join(str(args.zip_path), get_experiment_id())
+
+    if path := args.unc_path:
+        assert path.is_dir(), f"Path '{path}' is not a directory!"
+        PathParameters.GRAPHS_PATH = str(path)
+
+    main_charts_gen(zip_path)
+
+
 if __name__ == '__main__':
-    main()
+
+    parser = ArgumentParser("Generate charts that visually represent the experiment results.")
+
+    parser.add_argument("--zip-path", action="store", default=".", dest='zip_path', type=PosixPath,
+                        help="Path where to store the zip file containing the charts.")
+    parser.add_argument("--uncompressed-path", action="store", dest='unc_path', type=PosixPath,
+                        help="Directory where to store the uncompressed charts.")
+
+    _args = parser.parse_args()
+
+    main(args=_args)

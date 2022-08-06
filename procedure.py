@@ -7,7 +7,9 @@
 
 import itertools
 import os.path
+from argparse import ArgumentParser, Namespace
 from functools import partial
+from pathlib import PosixPath
 from typing import Callable
 
 import cv2
@@ -16,12 +18,11 @@ import pandas as pd
 
 import custom_apng
 import metrics
-from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
-    QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
+from parameters import PathParameters, LOSSLESS_EXTENSION, SAMPLES_PER_PIXEL, \
+    BITS_PER_SAMPLE, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
 from squeeze import squeeze_data
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
-    timed_command, total_pixels, rename_duplicate, rm_encoded, dataset_img_info
+    timed_command, total_pixels, rename_duplicate, rm_encoded, dataset_img_info, mkdir_if_not_exists
 
 """
     Codecs' versions
@@ -123,13 +124,13 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
     return pixels / (ct * 1e6)
 
 
-def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -> float:
+def custom_multiframe_encoding(encode_part: partial, format_: str, output_path: str, input_image: str) -> float:
     """Encodes a multi-frame apng image file into multiple frames
 
     This is for formats which don't support multiple frame images w/ >8 bits per sample
 
     @param encode_part:
-    @param format_:
+    @param format_: Which encoder to be used to
     @param output_path:
     @param input_image:
     @return:
@@ -142,7 +143,7 @@ def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -
         # Write the multiple frames as .png in DATASET_COMPRESSED_PATH
         frame_name = output_path.replace(f".{format_}", f"-{i}.png")
         cv2.imwrite(frame_name, frame)
-        # Recursively call this function for every written png frame (and save cs for each one)
+        # Call this function for every written png frame (and save cs for each one)
         cs_list.append(
             encode_part(
                 target_image=frame_name,
@@ -157,6 +158,7 @@ def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -
 
 
 def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, float, float, float]:
+    # sourcery skip: collection-into-set
     """Decodes the image and returns the process' metadata
 
     @param encoded_path: Path to the encoded image (to be decoded)
@@ -174,10 +176,10 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
     elif encoded_extension in ("webp", "avif") and og_image_path.endswith(".apng"):
         frames_list = filter(
             lambda file: file.endswith(encoded_extension),
-            os.listdir(DATASET_COMPRESSED_PATH)
+            os.listdir(PathParameters.DATASET_COMPRESSED_PATH)
         )
         cr = os.path.getsize(og_image_path) / np.sum(
-            [os.path.getsize(os.path.abspath(DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
+            [os.path.getsize(os.path.abspath(PathParameters.DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
         )
     else:
         raise AssertionError("Bad state (bug).")
@@ -290,17 +292,17 @@ def custom_multiframe_decoding(decoded_path: str, encoded_extension: str):
     # Execute decode command for all frames and collect DTs (decoding times)
     dt = 0
     frame_names: list[str] = []
-    for i, frame in enumerate(os.listdir(DATASET_COMPRESSED_PATH)):
+    for i, frame in enumerate(os.listdir(PathParameters.DATASET_COMPRESSED_PATH)):
         print(f"Decoded frame {i}")
         frame_names.append(
-            DATASET_COMPRESSED_PATH + frame.replace(f".{encoded_extension}", ".png")
+            PathParameters.DATASET_COMPRESSED_PATH + frame.replace(f".{encoded_extension}", ".png")
         )
         dt += timed_command(
-            custom_command(decoded_path=frame_names[-1], input_path=DATASET_COMPRESSED_PATH + frame)
+            custom_command(decoded_path=frame_names[-1], input_path=PathParameters.DATASET_COMPRESSED_PATH + frame)
         )
 
         # Either avif or webp store images in multichannel
-        if dataset_img_info(DATASET_COMPRESSED_PATH + frame, SAMPLES_PER_PIXEL) == "1":
+        if dataset_img_info(PathParameters.DATASET_COMPRESSED_PATH + frame, SAMPLES_PER_PIXEL) == "1":
             transcode_gray(frame_names[-1])
 
     # Staple output png frames
@@ -346,7 +348,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
         return
 
     # Save all images path relative to dataset_path
-    image_list = os.listdir(DATASET_PATH)
+    image_list = os.listdir(PathParameters.DATASET_PATH)
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
@@ -376,7 +378,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
             for quality, effort in itertools.product(quality_param_jxl, effort_jxl):
                 # Set output path of compressed
                 outfile_name, output_path = get_output_path(
-                    dataset_path=DATASET_PATH, effort=effort,
+                    dataset_path=PathParameters.DATASET_PATH, effort=effort,
                     quality=quality, target_image=target_image, format_="jxl"
                 )
 
@@ -384,12 +386,12 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                 print(f"Started analysing image \"{outfile_name}\"", end="...")
 
                 # Add wildcard for now because the extensions are missing
-                cs = encode_jxl(target_image=DATASET_PATH + target_image,
+                cs = encode_jxl(target_image=PathParameters.DATASET_PATH + target_image,
                                 distance=quality, effort=effort,
                                 output_path=output_path)
 
                 # Decode and collect stats to stats df
-                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
                 # Print when finished
                 print("Done!")
@@ -404,18 +406,18 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
             for quality, speed in itertools.product(quality_param_avif, speed_avif):
                 # Construct output file total path
                 outfile_name, output_path = get_output_path(
-                    dataset_path=DATASET_PATH, effort=speed,
+                    dataset_path=PathParameters.DATASET_PATH, effort=speed,
                     quality=quality, target_image=target_image, format_="avif"
                 )
 
                 # Print the progress being made
                 print(f"Started analysing image \"{outfile_name}\"", end="...")
 
-                cs = encode_avif(target_image=DATASET_PATH + target_image,
+                cs = encode_avif(target_image=PathParameters.DATASET_PATH + target_image,
                                  quality=quality, speed=speed, output_path=output_path)
 
                 # Decode and collect stats to stats df
-                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
                 # Print when finished
                 print("Done!")
@@ -430,7 +432,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
             for quality, effort in itertools.product(quality_param_webp, effort_webp):
                 # Construct output file total path
                 outfile_name, output_path = get_output_path(
-                    dataset_path=DATASET_PATH, effort=effort, quality=quality,
+                    dataset_path=PathParameters.DATASET_PATH, effort=effort, quality=quality,
                     target_image=target_image, format_="webp"
                 )
 
@@ -438,19 +440,22 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                 print(f"Started analysing image \"{outfile_name}\"... ", end="")
 
                 # Add wildcard for now because the extensions are missing
-                cs = encode_webp(target_image=DATASET_PATH + target_image,
+                cs = encode_webp(target_image=PathParameters.DATASET_PATH + target_image,
                                  quality=quality, effort=effort, output_path=output_path)
 
                 # Decode and collect stats to stats df
-                stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
                 # Print when finished
                 print("Done!")
 
+    # Create directory if it doesn't exist
+    mkdir_if_not_exists(PathParameters.PROCEDURE_RESULTS_PATH, regard_parent=True)
+
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
     stats.to_csv(
-        rename_duplicate(f"{PROCEDURE_RESULTS_FILE}.csv"), index=False
+        rename_duplicate(f"{PathParameters.PROCEDURE_RESULTS_PATH}.csv"), index=False
     )
 
 
@@ -499,17 +504,31 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     return outfile_name, output_path
 
 
-def main():
+def main(args: Namespace):
+
+    if args.outdir:
+        PathParameters.PROCEDURE_RESULTS_PATH = f"{args.outdir}/{PathParameters.PROCEDURE_RESULTS_PATH}"
+
     check_codecs()
+
     # Create paths
-    if not os.path.exists(DATASET_PATH):
-        os.makedirs(DATASET_PATH)
-    if not os.path.exists(DATASET_COMPRESSED_PATH):
-        os.makedirs(DATASET_COMPRESSED_PATH)
+    if not os.path.exists(PathParameters.DATASET_PATH):
+        os.makedirs(PathParameters.DATASET_PATH)
+    if not os.path.exists(PathParameters.DATASET_COMPRESSED_PATH):
+        os.makedirs(PathParameters.DATASET_COMPRESSED_PATH)
     rm_encoded()
+
     bulk_compress(jxl=True, avif=True, webp=True)
-    squeeze_data(PROCEDURE_RESULTS_FILE)
+    squeeze_data(PathParameters.PROCEDURE_RESULTS_PATH)
 
 
 if __name__ == '__main__':
-    main()
+
+    parser = ArgumentParser("(De)compress the provided dataset and capture metrics into data files.")
+
+    parser.add_argument("--output", dest='outdir', action='store', nargs='?', type=PosixPath, default=".",
+                        help='Specify output directory of metric result files. (Not yet available)')
+
+    _args = parser.parse_args()
+
+    main(_args)

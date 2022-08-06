@@ -1,10 +1,11 @@
-"""Parse the .dcm dataset into standalone images dataset.
+"""Parse the .dcm dataset into standalone images' dataset.
 
     Extracts the image from the DICOM file (assuming only one frame is present)
     and writes it in the dataset {parameters.DATASET_PATH} in the image format {parameters.LOSSLESS_EXTENSION}.
 """
-
 import os
+from argparse import ArgumentParser, Namespace
+from pathlib import PosixPath
 
 import cv2
 import numpy as np
@@ -13,8 +14,9 @@ from pydicom.pixel_data_handlers import convert_color_space
 from pydicom.tag import BaseTag
 from pydicom.valuerep import VR
 
+import util
 from custom_apng import write_apng
-from parameters import DATASET_PATH, LOSSLESS_EXTENSION
+from parameters import PathParameters, LOSSLESS_EXTENSION, PREFIX
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
@@ -54,7 +56,7 @@ def parse_dcm(filepath: str):
     # Set image path where it will be written on
     attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
                                                   samples_per_pixel.value, bps.value, number_of_frames)])
-    out_img_path: str = f"{DATASET_PATH}{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
+    out_img_path: str = f"{PathParameters.DATASET_PATH}{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 
     repetition_id = 0
 
@@ -105,7 +107,7 @@ def get_number_of_frames(file_data: FileDataset, img_shape: tuple, single_channe
     return number_of_frames
 
 
-def extract_attributes(file_data: FileDataset)\
+def extract_attributes(file_data: FileDataset) \
         -> tuple[DataElement, DataElement, DataElement, DataElement, DataElement]:
     """Extract main attributes from dicom file
 
@@ -174,24 +176,67 @@ def exec_shell(command: str):
     assert return_code == 0, f"Problem executing \"{command}\", code {return_code}"
 
 
-def main():
+def run_parsing(dicom_path: PosixPath):
     """Main function for this module
 
+    @param dicom_path: The directory with the dicom files (no need to be an actual DICOM_DIR)
     """
     print("Pre-processing dicom dataset into .(a)png", end="...")
-    # Specify the directory where the dicom files are
-    raw_dataset: str = "images/dataset_dicom/"
-    if not os.path.exists(raw_dataset):
-        os.makedirs(raw_dataset)
-    dirs: list[str] = list(os.listdir(raw_dataset))
+
+    dicom_path_str = str(dicom_path)
+
+    if not os.path.exists(dicom_path):
+        os.makedirs(dicom_path)
+    if not os.path.exists(PathParameters.DATASET_PATH):
+        os.makedirs(PathParameters.DATASET_PATH)
+
     # Empty the images/dataset directory
-    for file in os.listdir(DATASET_PATH):
-        os.remove(DATASET_PATH + file)
+    for file in os.listdir(PathParameters.DATASET_PATH):
+        os.remove(PathParameters.DATASET_PATH + file)
+
+    files: list[str] = list(os.listdir(dicom_path_str))
     # Call a function to parse each dicom file
-    for dcm_file in dirs:
-        parse_dcm(filepath=raw_dataset + dcm_file)
+    if dicom_path.is_dir():
+        for dcm_file in files:
+            if not util.is_file_a_dicom(f"{dicom_path_str}/{dcm_file}"):
+                print(f"File '{dcm_file}' is not dicom. Skipping...")
+                continue
+            parse_dcm(filepath=f"{dicom_path_str}/{dcm_file}")
+    elif dicom_path.is_file():
+        if util.is_file_a_dicom(dicom_path_str):
+            parse_dcm(filepath=dicom_path_str)
+    else:
+        print(f"Path '{dicom_path.name}' is not a directory nor dicom file!")
+        return
     print("Done!")
 
 
-if __name__ == "__main__":
-    main()
+def main(args: Namespace):
+    dicom_dirs = args.input
+
+    if path := args.path:
+        path = path.replace('~', os.environ['HOME'])
+        PathParameters.DATASET_PATH = f'{path}/'
+
+    if args.tmp:
+        PathParameters.DATASET_PATH = PREFIX + PathParameters.DATASET_PATH
+
+    for dicom_path in dicom_dirs:
+        run_parsing(dicom_path=dicom_path)
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description=f"Preprocess dicom files into lossless "
+                                        f"'{LOSSLESS_EXTENSION}' format images")
+
+    parser.add_argument('--tmp', action='store_true',
+                        help='Store output files inside /tmp/ directory')
+    parser.add_argument('--path', action='store', nargs='?',
+                        help='Define the path for the output files (beware if you choose '
+                             'this option along with --tmp, /tmp/ will be appended as prefix anyways)')
+    parser.add_argument('input', action='store', nargs='+', type=PosixPath,
+                        help='Folder or dicom files to serve as input for the experience')
+
+    _args = parser.parse_args()
+
+    main(args=_args)
