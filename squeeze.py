@@ -26,7 +26,7 @@ def squeeze_data(results_path: str = PathParameters.PROCEDURE_RESULTS_PATH):
 
     results_parent_dir = str(PosixPath(results_path).parent)
     ordered_proc_res = sorted(filter(
-        lambda file: file.startswith(results_path) and file.endswith(".csv"),
+        lambda path: os.path.basename(path).startswith(results_path) and path.endswith(".csv"),
         (f'{results_parent_dir}/' + file for file in os.listdir(results_parent_dir))
     ))
 
