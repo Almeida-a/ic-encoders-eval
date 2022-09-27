@@ -25,8 +25,7 @@ from pydicom import dcmread
 import dicom_parser
 import metrics
 from dicom_parser import extract_attributes
-from parameters import JPEG_EVAL_RESULTS_FILE, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, DATASET_PATH, \
-    DATASET_DICOM_PATH, ResultsColumnNames
+from parameters import PathParameters, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, ResultsColumnNames
 from squeeze import squeeze_data
 
 QUALITY_SPREAD: int = 1
@@ -52,8 +51,8 @@ def compress_n_compare():
     # Save the compression ratio in a dataframe
     results = pd.DataFrame(data=dict(filename=[], cr=[], mse=[], psnr=[], ssim=[]))
 
-    for file_name in os.listdir(DATASET_DICOM_PATH):
-        file_path: str = DATASET_DICOM_PATH + file_name
+    for file_name in os.listdir(PathParameters.DATASET_DICOM_PATH):
+        file_path: str = PathParameters.DATASET_DICOM_PATH + file_name
 
         print(f"Evaluating {file_name}", end="...")
         for quality in QUALITY_VALUES:
@@ -67,7 +66,7 @@ def compress_n_compare():
             nframes: int = dicom_parser.get_number_of_frames(dcm_data, uncompressed_img.shape,
                                                              single_channel=samples_per_pixel == 1)
 
-            encoded_target_path = f"{DATASET_PATH}{modality.value}_{body_part.value}" \
+            encoded_target_path = f"{PathParameters.DATASET_PATH}{modality.value}_{body_part.value}" \
                                   f"_{color_space.value.replace('_', '')}_{samples_per_pixel.value}" \
                                   f"_{bits_per_sample.value}_{nframes}.dcm"
 
@@ -118,10 +117,10 @@ def compress_n_compare():
 
         print("Done!")
 
-    for generated_dcm in filter(lambda file: file.endswith(".dcm"), os.listdir(DATASET_PATH)):
-        os.remove(DATASET_PATH+generated_dcm)
+    for generated_dcm in filter(lambda file: file.endswith(".dcm"), os.listdir(PathParameters.DATASET_PATH)):
+        os.remove(PathParameters.DATASET_PATH+generated_dcm)
 
-    results.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
+    results.to_csv(f"{PathParameters.JPEG_EVAL_RESULTS_PATH}.csv", index=False)
 
 
 def exec_cmd(command):
@@ -140,6 +139,7 @@ def check_deps():
     """Verifies the existence of dependencies
 
     """
+    print("Searching for the dcmcjpeg tool... ", end="")
     if os.system("which dcmcjpeg") != 0:
         print("dcmtk not found!")
         exit(1)
@@ -149,4 +149,4 @@ if __name__ == '__main__':
     check_deps()
 
     compress_n_compare()
-    squeeze_data(JPEG_EVAL_RESULTS_FILE)
+    squeeze_data(PathParameters.JPEG_EVAL_RESULTS_PATH)

@@ -28,29 +28,6 @@ from parameters import MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DI
     MINIMUM_WEBP_QUALITY, MINIMUM_JPEG_QUALITY, PathParameters
 from util import sort_by_keys
 
-NOW__STRFTIME = datetime.now().strftime("DT_%d-%h-%y_%Hh%M")
-
-TITLE_PAD = 12.5
-
-TOGGLE_CHARTS_SAVE = True
-
-WILDCARD_REGEX = r"[a-zA-Z0-9]+"
-
-WILDCARD: str = "*"
-
-MARGIN = .1  # ylim margin. e.g.: 10% margin
-
-DARK_GREEN = "#007700"
-DARK_PURPLE = "#4c0099"
-
-METRICS_DESCRIPTION = dict(
-    ds="Decompression Speed", cs="Compression Speed", cr="Compression Ratio",
-    ssim="Structural Similarity", psnr="Peak Signal to Noise Ratio", mse="Mean Squared Error"
-)
-UNITS = dict(
-    ds="MP/s", cs="MP/s"
-)
-
 
 class GraphMode(Enum):
     """Defines types of data visualization
@@ -84,7 +61,30 @@ class ImageCompressionFormat(Enum):
 
 # Enums
 EVALUATE = GraphMode.QUALITY
-EXPERIMENT = Pipeline.MAIN
+EXPERIMENT = Pipeline.JPEG
+
+NOW__STRFTIME = datetime.now().strftime("DT_%d-%h-%y_%Hh%M")
+
+TITLE_PAD = 12.5
+
+TOGGLE_CHARTS_SAVE = True
+
+WILDCARD_REGEX = r"[a-zA-Z0-9]+"
+
+WILDCARD: str = "*"
+
+MARGIN = .1  # ylim margin. e.g.: 10% margin
+
+DARK_GREEN = "#007700"
+DARK_PURPLE = "#4c0099"
+
+METRICS_DESCRIPTION = dict(
+    ds="Decompression Speed", cs="Compression Speed", cr="Compression Ratio",
+    ssim="Structural Similarity", psnr="Peak Signal to Noise Ratio", mse="Mean Squared Error"
+)
+UNITS = dict(
+    ds="MP/s", cs="MP/s"
+)
 
 
 def draw_lines(x: list[float], y: list[float], x_label: str = "", y_label: str = "",
@@ -272,10 +272,10 @@ def save_fig(fig: plt.Figure, filename: str, **kwargs):
 
 
 def get_qualities(raw_data_fname: str, compression_format: str) -> list:
-    """
+    """Extract all qualities used in an experiment
 
-    @param raw_data_fname:
-    @param compression_format:
+    @param raw_data_fname: Experiment results(.csv) file
+    @param compression_format: Format in question
     @return:
     """
 
@@ -286,7 +286,7 @@ def get_qualities(raw_data_fname: str, compression_format: str) -> list:
     if compression_format == "jxl":
         matcher = re.compile(rf"\d+.\d+-e\d.{compression_format}")
         value_matcher = re.compile(r"\d+.\d+")
-    elif compression_format in {"jpeg", "avif", "webp"}:
+    elif compression_format in {"avif", "webp"}:
         matcher = re.compile(rf"\d+-e\d.{compression_format}")
     elif compression_format == "jpeg":
         matcher = re.compile(rf"\d+.{compression_format}")
@@ -358,8 +358,8 @@ def metric_per_quality(compression_format: str, metric: str = "ssim", y_metric: 
     filename: str = f"{modality.lower()}_{body_part.lower()}_" \
                     f"d{depth}_s{spp}_b{bps}_n{size}_{compression_format.lower()}" if TOGGLE_CHARTS_SAVE else ""
 
-    unit = f"({UNITS.get(metric)})" if UNITS.get(metric) is not None else ""
-    unit2 = f"({UNITS.get(y_metric)})" if UNITS.get(y_metric) is not None else ""
+    unit = f"({UNITS.get(metric)})" if UNITS.get(metric) else ""
+    unit2 = f"({UNITS.get(y_metric)})" if UNITS.get(y_metric) else ""
     draw_bars(qualities, avg, std, x_label="Quality values",
               y_label=f"{METRICS_DESCRIPTION[metric]} {unit}", y2_label=f"{METRICS_DESCRIPTION[y_metric]} {unit2}",
               title=f"'{modality}-{body_part}' images, '{compression_format}' format,"
@@ -464,15 +464,15 @@ def filter_data(body_part: str, bps: str, compression_format: str,
     lgt_expr_regex = re.compile(r"<|>\d+")
     if spp == WILDCARD:
         spp = r"\d+"
-    elif lgt_expr_regex.fullmatch(spp) is not None:
+    elif lgt_expr_regex.fullmatch(spp):
         spp = util.number_lgt_regex(spp)
     if bps == WILDCARD:
         bps = r"\d+"
-    elif lgt_expr_regex.fullmatch(bps) is not None:
+    elif lgt_expr_regex.fullmatch(bps):
         bps = util.number_lgt_regex(bps)
     if depth == WILDCARD:
         depth = r"\d+"
-    elif lgt_expr_regex.fullmatch(depth) is not None:
+    elif lgt_expr_regex.fullmatch(depth):
         depth = util.number_lgt_regex(depth)
     if modality == WILDCARD:
         modality = WILDCARD_REGEX
@@ -651,13 +651,15 @@ def main_charts_gen(zip_path: str):
 
 def main(args: Namespace):
 
-    assert args.zip_path.is_dir(), f"Path '{args.zip_path}' is not a directory!"
+    if not args.zip_path.is_dir():
+        print(f"Path '{args.zip_path}' is not a directory! Creating it now.")
+        os.makedirs(args.zip_path)
     util.mkdir_if_not_exists(args.zip_path)
     zip_path: str = os.path.join(str(args.zip_path), get_experiment_id())
 
     if path := args.unc_path:
         assert path.is_dir(), f"Path '{path}' is not a directory!"
-        PathParameters.GRAPHS_PATH = str(path)
+        PathParameters.GRAPHS_PATH = f"{path}/"
 
     main_charts_gen(zip_path)
 
