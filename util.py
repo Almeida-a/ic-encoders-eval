@@ -54,7 +54,7 @@ def construct_dwebp(decoded_path: str, input_path: str, additional_options: str 
     return f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
 
 
-def construct_cwebp(effort, output_path, quality, target_image):
+def construct_cwebp(target_image, output_path, quality: int = 75, effort: int = 4, lossless: bool = False):
     """Creates the command for encoding an image to webp
 
     Given the provided configurations
@@ -63,36 +63,45 @@ def construct_cwebp(effort, output_path, quality, target_image):
     @param output_path: Output
     @param quality: Quality setting
     @param target_image: Input
+    @param lossless: Toggle lossless encoding
     @return: Void
     """
+    if lossless:
+        return f"cwebp -quiet -lossless -m {effort} {target_image} -o {output_path}"
     return f"cwebp -quiet -v -q {quality} -m {effort} {target_image} -o {output_path}"
 
 
-def construct_cavif(output_path, quality, speed, target_image):
+def construct_cavif(target_image, output_path, quality: int = 80, speed: int = 4, lossless: bool = False):
     """Creates the command for encoding an image to avif
 
     Given the provided configurations
 
+    @param lossless: Toggle lossless encoding mode
     @param output_path: Output
     @param quality: Quality setting
     @param speed: Effort setting
     @param target_image: Input
     @return: Void
     """
-    return f"cavif -o {output_path} " f"--quality {quality} --speed {speed} --quiet " f"{os.path.abspath(target_image)}"
+    if lossless:
+        return f"cavif -o {output_path} --lossless --speed {speed} --quiet {os.path.abspath(target_image)}"
+    return f"cavif -o {output_path} --quality {quality} --speed {speed} --quiet {os.path.abspath(target_image)}"
 
 
-def construct_cjxl(distance, effort, output_path, target_image):
+def construct_cjxl(target_image, output_path,  distance: float = 1.0, effort: int = 7, lossless: bool = False):
     """Creates the command for encoding an image to jxl
 
     Given the provided configurations
 
+    @param lossless: Toggle lossless mode
     @param distance: Quality setting
     @param effort: Effort setting
     @param output_path: Output
     @param target_image: Input
     @return: Void
     """
+    if lossless:
+        distance = 0.0
     return f"cjxl {target_image} {output_path} " f"--distance={distance} --effort={effort} --quiet"
 
 

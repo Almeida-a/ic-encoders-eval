@@ -7,7 +7,7 @@
 
 import itertools
 import os.path
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from functools import partial
 from pathlib import PosixPath
 from typing import Callable
@@ -39,31 +39,33 @@ def check_codecs():
     Exits program if one does not exist
     """
     print("Looking for the codecs...")
-    if os.system("which cavif") != 0 or os.system("which avif_decode") != 0:
+    if os.system("which cavif avif_decode") != 0:
         print("AVIF codec not found!")
         exit(1)
-    elif os.system("which djxl") != 0 or os.system("which cjxl") != 0:
+    elif os.system("which djxl cjxl") != 0:
         print("JPEG XL codec not found!")
         exit(1)
-    elif os.system("which cwebp") != 0 or os.system("which dwebp") != 0:
+    elif os.system("which cwebp dwebp") != 0:
         print("WebP codec not found!")
         exit(1)
     print("All codecs are available!")
 
 
-def encode_jxl(target_image: str, distance: float, effort: int, output_path: str) -> float:
+def encode_jxl(target_image: str, output_path: str, distance: float = 1.0,
+               effort: int = 7, lossless: bool = False) -> float:
     """Encodes an image using the cjxl program
 
     @param target_image: Path to image targeted for compression encoding
     @param distance: Quality setting as set by cjxl (butteraugli --distance)
     @param effort: --effort level parameter as set by cjxl
     @param output_path: Path where the dataset_compressed image should go to
+    @param lossless: Toggle lossless mode
     @return: Compression speed, in MP/s
     """
     pixels = total_pixels(target_image)
 
     # Construct the encoding command
-    command = construct_cjxl(distance, effort, output_path, target_image)
+    command = construct_cjxl(target_image, output_path, distance, effort, lossless=lossless)
 
     # Run and extract ct
     ct = timed_command(command)
@@ -71,50 +73,51 @@ def encode_jxl(target_image: str, distance: float, effort: int, output_path: str
     return pixels / (ct * 1e6)
 
 
-def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -> float:
+def encode_avif(target_image: str, output_path: str, quality: int = 80,
+                speed: int = 4, lossless: bool = False) -> float:
     """Encodes an image using the cavif(-rs) program
 
     @param target_image: Input/Original image
+    @param output_path: Encoded file output path
     @param quality: --quality configuration
     @param speed: --speed configuration
-    @param output_path: Encoded file output path
+    @param lossless: Toggle lossless encoding mode
     @return: Compression speed, in MP/s
     """
 
     if target_image.endswith(".apng"):
         encode_part = partial(encode_avif, quality=quality, speed=speed)
-        format_ = "avif"
-
-        return custom_multiframe_encoding(encode_part, format_, output_path, target_image)
+        return custom_multiframe_encoding(encode_part, "avif", output_path, target_image)
 
     pixels = total_pixels(target_image)
 
     # Construct the command
-    command = construct_cavif(output_path, quality, speed, target_image)
+    command = construct_cavif(target_image, output_path, quality, speed, lossless=lossless)
 
     ct = timed_command(command)
 
     return pixels / (ct * 1e6)
 
 
-def encode_webp(target_image: str, quality: int, effort: int, output_path: str) -> float:
+def encode_webp(target_image: str, output_path: str, quality: int = 75,
+                effort: int = 4, lossless: bool = False) -> float:
     """Encodes an image using the cwebp program
 
     @param target_image: path/to/image.ext, where the extension needs to be supported by cwebp
     @param quality: Quality loss level (1 to 100), -q option of the tool
     @param effort: Effort of the encoding process (-m option of the tool)
     @param output_path: Directory where the compression
+    @param lossless: Toggle lossless encoding mode
     @return: Compression speed, in MP/s
     """
 
     if target_image.endswith(".apng"):
-        format_ = "webp"
         encode_part = partial(encode_webp, quality=quality, effort=effort)
 
-        return custom_multiframe_encoding(encode_part, format_, output_path, target_image)
+        return custom_multiframe_encoding(encode_part, "webp", output_path, target_image)
 
     # Command to be executed for the compression
-    command = construct_cwebp(effort, output_path, quality, target_image)
+    command = construct_cwebp(target_image, output_path, quality, effort, lossless=lossless)
 
     ct = timed_command(command)
 
@@ -350,11 +353,16 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     # Save all images path relative to dataset_path
     image_list = os.listdir(PathParameters.DATASET_PATH)
 
-    # Set quality parameters to be used in compression
-    # How many configurations are expected (evenly spaced in the range)
-    quality_param_jxl: np.ndarray = np.linspace(.0, MAXIMUM_JXL_DISTANCE, QUALITY_TOTAL_STEPS)
-    quality_param_avif = np.linspace(MINIMUM_AVIF_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
-    quality_param_webp = np.linspace(MINIMUM_WEBP_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
+    quality_param_jxl = (0.0,)
+    quality_param_avif = (80,)
+    quality_param_webp = (75,)
+
+    if not args.lossless:
+        # Set quality parameters to be used in compression
+        # How many configurations are expected (evenly spaced in the range)
+        quality_param_jxl = np.linspace(.0, MAXIMUM_JXL_DISTANCE, QUALITY_TOTAL_STEPS)
+        quality_param_avif = np.linspace(MINIMUM_AVIF_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
+        quality_param_webp = np.linspace(MINIMUM_WEBP_QUALITY, 100, QUALITY_TOTAL_STEPS).astype(np.ubyte)
 
     # Set effort/speed parameters for compression (common step)
     effort_jxl = (7,)
@@ -370,6 +378,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # JPEG XL evaluation
     if jxl:
+        format_ = "jxl"
         for target_image in image_list:
 
             if not target_image.endswith(".apng") and not target_image.endswith(".png"):
@@ -377,18 +386,16 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
             for quality, effort in itertools.product(quality_param_jxl, effort_jxl):
                 # Set output path of compressed
-                outfile_name, output_path = get_output_path(
-                    dataset_path=PathParameters.DATASET_PATH, effort=effort,
-                    quality=quality, target_image=target_image, format_="jxl"
-                )
+                outfile_name, output_path = get_output_path(dataset_path=PathParameters.DATASET_PATH,
+                                                            target_image=target_image, effort=effort, quality=quality,
+                                                            format_=format_, lossless=args.lossless)
 
                 # Print image analysis
-                print(f"Started analysing image \"{outfile_name}\"", end="...")
+                print(f"Started analysing image '{outfile_name}'", end="...")
 
                 # Add wildcard for now because the extensions are missing
-                cs = encode_jxl(target_image=PathParameters.DATASET_PATH + target_image,
-                                distance=quality, effort=effort,
-                                output_path=output_path)
+                cs = encode_jxl(target_image=PathParameters.DATASET_PATH + target_image, output_path=output_path,
+                                distance=quality, effort=effort, lossless=args.lossless)
 
                 # Decode and collect stats to stats df
                 stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
@@ -397,7 +404,8 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
                 print("Done!")
 
     # AVIF
-    if avif:
+    if avif and not args.lossless:
+        format_ = "avif"
         for target_image in image_list:
 
             if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
@@ -405,16 +413,15 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
             for quality, speed in itertools.product(quality_param_avif, speed_avif):
                 # Construct output file total path
-                outfile_name, output_path = get_output_path(
-                    dataset_path=PathParameters.DATASET_PATH, effort=speed,
-                    quality=quality, target_image=target_image, format_="avif"
-                )
+                outfile_name, output_path = get_output_path(dataset_path=PathParameters.DATASET_PATH,
+                                                            target_image=target_image, effort=speed, quality=quality,
+                                                            format_=format_, lossless=args.lossless)
 
                 # Print the progress being made
-                print(f"Started analysing image \"{outfile_name}\"", end="...")
+                print(f"Started analysing image '{outfile_name}'", end="...")
 
-                cs = encode_avif(target_image=PathParameters.DATASET_PATH + target_image,
-                                 quality=quality, speed=speed, output_path=output_path)
+                cs = encode_avif(target_image=PathParameters.DATASET_PATH + target_image, output_path=output_path,
+                                 quality=quality, speed=speed, lossless=args.lossless)
 
                 # Decode and collect stats to stats df
                 stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
@@ -424,6 +431,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
     # WebP
     if webp:
+        format_ = "webp"
         for target_image in image_list:
 
             if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
@@ -431,17 +439,16 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
 
             for quality, effort in itertools.product(quality_param_webp, effort_webp):
                 # Construct output file total path
-                outfile_name, output_path = get_output_path(
-                    dataset_path=PathParameters.DATASET_PATH, effort=effort, quality=quality,
-                    target_image=target_image, format_="webp"
-                )
+                outfile_name, output_path = get_output_path(dataset_path=PathParameters.DATASET_PATH,
+                                                            target_image=target_image, effort=effort, quality=quality,
+                                                            format_=format_, lossless=args.lossless)
 
                 # Print the progress being made
                 print(f"Started analysing image \"{outfile_name}\"... ", end="")
 
                 # Add wildcard for now because the extensions are missing
-                cs = encode_webp(target_image=PathParameters.DATASET_PATH + target_image,
-                                 quality=quality, effort=effort, output_path=output_path)
+                cs = encode_webp(target_image=PathParameters.DATASET_PATH + target_image, output_path=output_path,
+                                 quality=quality, effort=effort, lossless=args.lossless)
 
                 # Decode and collect stats to stats df
                 stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
@@ -482,9 +489,11 @@ def finalize(cs: float, outfile_name: str, encoded_path: str, stats: pd.DataFram
     return stats
 
 
-def get_output_path(dataset_path: str, target_image: str, effort: int, quality: float, format_: str) -> tuple[str, str]:
+def get_output_path(dataset_path: str, target_image: str, effort: int,
+                    quality: float, format_: str, lossless: bool) -> tuple[str, str]:
     """ Compute the output path of the compressed version of the target image.
 
+    @param lossless:
     @param dataset_path: Dataset containing the target image.
     @param target_image: Input, original and lossless image.
     @param effort: Effort/speed configuration with which the image compression process will be set to.
@@ -493,8 +502,10 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     @return: Output file basename and path
     """
 
+    quality_mode: str = "LOSSLESS" if lossless else f"q{quality}"
+
     # Construct output file total path
-    outfile_name: str = f"{target_image.split(LOSSLESS_EXTENSION)[0]}_" + f"q{quality}-e{effort}.{format_}"
+    outfile_name: str = f"{target_image.split(LOSSLESS_EXTENSION)[0]}_" + f"{quality_mode}-e{effort}.{format_}"
 
     # Trim trailing slash "/"
     trimmed: list = dataset_path.split("/")
@@ -504,7 +515,7 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     return outfile_name, output_path
 
 
-def main(args: Namespace):
+def main():
 
     if args.outdir:
         PathParameters.PROCEDURE_RESULTS_PATH = f"{args.outdir}/{PathParameters.PROCEDURE_RESULTS_PATH}"
@@ -527,8 +538,9 @@ if __name__ == '__main__':
     parser = ArgumentParser("(De)compress the provided dataset and capture metrics into data files.")
 
     parser.add_argument("--output", dest='outdir', action='store', nargs='?', type=PosixPath, default=".",
-                        help='Specify output directory of metric result files. (Not yet available)')
+                        help='Specify output directory of metric result files.')
+    parser.add_argument("--lossless", action="store_true", default="false")
 
-    _args = parser.parse_args()
+    args = parser.parse_args()
 
-    main(_args)
+    main()
