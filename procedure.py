@@ -4,9 +4,12 @@
 
 """
 
-import json
+
+import itertools
 import os.path
+from argparse import ArgumentParser, Namespace
 from functools import partial
+from pathlib import PosixPath
 from typing import Callable
 
 import cv2
@@ -15,16 +18,16 @@ import pandas as pd
 
 import custom_apng
 import metrics
-from parameters import LOSSLESS_EXTENSION, PROCEDURE_RESULTS_FILE, DATASET_PATH, SAMPLES_PER_PIXEL, \
-    DATASET_COMPRESSED_PATH, BITS_PER_SAMPLE, MODALITY, DEPTH, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, \
-    QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
+from parameters import PathParameters, LOSSLESS_EXTENSION, SAMPLES_PER_PIXEL, \
+    BITS_PER_SAMPLE, MINIMUM_WEBP_QUALITY, MINIMUM_AVIF_QUALITY, QUALITY_TOTAL_STEPS, MAXIMUM_JXL_DISTANCE
+from squeeze import squeeze_data
 from util import construct_djxl, construct_davif, construct_dwebp, construct_cwebp, construct_cavif, construct_cjxl, \
-    timed_command, total_pixels, original_basename, rm_encoded, dataset_img_info
+    timed_command, total_pixels, rename_duplicate, rm_encoded, dataset_img_info, mkdir_if_not_exists
 
 """
     Codecs' versions
-        cjxl, djxl -> v0.6.1
-        cwebp, dwebp -> v0.4.1
+        cjxl, djxl -> v0.7.0 -- ae95f45
+        cwebp, dwebp -> v1.2.1
         cavif -> v1.3.4
         avif_decode -> 0.2.2
 """
@@ -91,10 +94,7 @@ def encode_avif(target_image: str, quality: int, speed: int, output_path: str) -
 
     ct = timed_command(command)
 
-    # Parse to compression speed MP/s
-    cs = pixels / (ct * 1e6)
-
-    return cs
+    return pixels / (ct * 1e6)
 
 
 def encode_webp(target_image: str, quality: int, effort: int, output_path: str) -> float:
@@ -124,13 +124,13 @@ def encode_webp(target_image: str, quality: int, effort: int, output_path: str) 
     return pixels / (ct * 1e6)
 
 
-def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -> float:
+def custom_multiframe_encoding(encode_part: partial, format_: str, output_path: str, input_image: str) -> float:
     """Encodes a multi-frame apng image file into multiple frames
 
     This is for formats which don't support multiple frame images w/ >8 bits per sample
 
     @param encode_part:
-    @param format_:
+    @param format_: Which encoder to be used to
     @param output_path:
     @param input_image:
     @return:
@@ -143,7 +143,7 @@ def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -
         # Write the multiple frames as .png in DATASET_COMPRESSED_PATH
         frame_name = output_path.replace(f".{format_}", f"-{i}.png")
         cv2.imwrite(frame_name, frame)
-        # Recursively call this function for every written png frame (and save cs for each one)
+        # Call this function for every written png frame (and save cs for each one)
         cs_list.append(
             encode_part(
                 target_image=frame_name,
@@ -158,11 +158,12 @@ def custom_multiframe_encoding(encode_part, format_, output_path, input_image) -
 
 
 def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, float, float, float]:
-    """ Decodes the image and returns the process' metadata
+    # sourcery skip: collection-into-set
+    """Decodes the image and returns the process' metadata
 
-    @param og_image_path:
-    @param encoded_path: Path to the image to be decoded
-    @return: CR, DS(MP/s), MSE, PSNR, SSIM regarding the compression applied to the image
+    @param encoded_path: Path to the encoded image (to be decoded)
+    @param og_image_path: Path to the original, lossless image
+    @return: CR, DS(MP/s), MSE, PSNR and SSIM regarding the compression applied to the image
     """
 
     encoded_extension: str = encoded_path.split(".")[-1]
@@ -175,13 +176,13 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
     elif encoded_extension in ("webp", "avif") and og_image_path.endswith(".apng"):
         frames_list = filter(
             lambda file: file.endswith(encoded_extension),
-            os.listdir(DATASET_COMPRESSED_PATH)
+            os.listdir(PathParameters.DATASET_COMPRESSED_PATH)
         )
         cr = os.path.getsize(og_image_path) / np.sum(
-            [os.path.getsize(os.path.abspath(DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
+            [os.path.getsize(os.path.abspath(PathParameters.DATASET_COMPRESSED_PATH + frame)) for frame in frames_list]
         )
     else:
-        raise AssertionError("Bad state (use debugger)")
+        raise AssertionError("Bad state (bug).")
 
     match encoded_extension:
         case "jxl":
@@ -243,7 +244,7 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
             ds = pixels / (dt * 1e6)
 
         case _:
-            raise AssertionError(f"Unsupported extension for decoding: {encoded_extension}")
+            raise AssertionError(f"Unsupported extension for decoding: '{encoded_extension}'")
 
     # Read the output images w/ opencv
     if decoded_path.endswith("apng"):
@@ -264,13 +265,15 @@ def decode_compare(encoded_path: str, og_image_path) -> tuple[float, float, floa
     else:
         psnr = float("inf")
     ssim: float = metrics.custom_ssim(og_image, decoded_image,
-                                      color=int(dataset_img_info(og_image_path, SAMPLES_PER_PIXEL)) > 1)
+                                      is_colorized=int(dataset_img_info(og_image_path, SAMPLES_PER_PIXEL)) > 1)
 
     return cr, ds, mse, psnr, ssim
 
 
-def custom_multiframe_decoding(decoded_path, encoded_extension):
+def custom_multiframe_decoding(decoded_path: str, encoded_extension: str):
     """Decodes all frames present in the dataset_compressed folder and outputs apng
+
+    Those frames are encoded by either avif or webp
 
     @param decoded_path: APNG output file name
     @param encoded_extension: reference to which codec is being used
@@ -286,20 +289,20 @@ def custom_multiframe_decoding(decoded_path, encoded_extension):
         case _:
             raise AssertionError(f"Illegal format used: '{encoded_extension}'")
 
-    # Execute decode command for all frames and collect DTs
+    # Execute decode command for all frames and collect DTs (decoding times)
     dt = 0
     frame_names: list[str] = []
-    for i, frame in enumerate(os.listdir(DATASET_COMPRESSED_PATH)):
+    for i, frame in enumerate(os.listdir(PathParameters.DATASET_COMPRESSED_PATH)):
         print(f"Decoded frame {i}")
         frame_names.append(
-            DATASET_COMPRESSED_PATH + frame.replace(f".{encoded_extension}", ".png")
+            PathParameters.DATASET_COMPRESSED_PATH + frame.replace(f".{encoded_extension}", ".png")
         )
         dt += timed_command(
-            custom_command(decoded_path=frame_names[-1], input_path=DATASET_COMPRESSED_PATH + frame)
+            custom_command(decoded_path=frame_names[-1], input_path=PathParameters.DATASET_COMPRESSED_PATH + frame)
         )
 
         # Either avif or webp store images in multichannel
-        if dataset_img_info(DATASET_COMPRESSED_PATH + frame, SAMPLES_PER_PIXEL) == "1":
+        if dataset_img_info(PathParameters.DATASET_COMPRESSED_PATH + frame, SAMPLES_PER_PIXEL) == "1":
             transcode_gray(frame_names[-1])
 
     # Staple output png frames
@@ -320,6 +323,7 @@ def transcode_gray(img_path):
                                                     "gray version for rgb (gray original) image."
 
 
+# TODO break into 3 functions, one for each format
 def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     """ Compress and analyse. Outputs analysis to ".csv".
 
@@ -344,7 +348,7 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
         return
 
     # Save all images path relative to dataset_path
-    image_list = os.listdir(DATASET_PATH)
+    image_list = os.listdir(PathParameters.DATASET_PATH)
 
     # Set quality parameters to be used in compression
     # How many configurations are expected (evenly spaced in the range)
@@ -365,93 +369,93 @@ def bulk_compress(jxl: bool = True, avif: bool = True, webp: bool = True):
     )
 
     # JPEG XL evaluation
-    if jxl is True:
+    if jxl:
         for target_image in image_list:
 
             if not target_image.endswith(".apng") and not target_image.endswith(".png"):
                 continue
 
-            for quality in quality_param_jxl:
-                for effort in effort_jxl:
-                    # Set output path of compressed
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=effort,
-                        quality=quality, target_image=target_image, format_="jxl"
-                    )
+            for quality, effort in itertools.product(quality_param_jxl, effort_jxl):
+                # Set output path of compressed
+                outfile_name, output_path = get_output_path(
+                    dataset_path=PathParameters.DATASET_PATH, effort=effort,
+                    quality=quality, target_image=target_image, format_="jxl"
+                )
 
-                    # Print image analysis
-                    print(f"Started analysing image \"{outfile_name}\"", end="...")
+                # Print image analysis
+                print(f"Started analysing image \"{outfile_name}\"", end="...")
 
-                    # Add wildcard for now because the extensions are missing
-                    cs = encode_jxl(target_image=DATASET_PATH + target_image,
-                                    distance=quality, effort=effort,
-                                    output_path=output_path)
+                # Add wildcard for now because the extensions are missing
+                cs = encode_jxl(target_image=PathParameters.DATASET_PATH + target_image,
+                                distance=quality, effort=effort,
+                                output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
 
     # AVIF
-    if avif is True:
+    if avif:
         for target_image in image_list:
 
-            if not any([target_image.endswith(accepted) for accepted in (".png", ".apng")]):
+            if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
                 continue
 
-            for quality in quality_param_avif:
-                for speed in speed_avif:
-                    # Construct output file total path
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=speed,
-                        quality=quality, target_image=target_image, format_="avif"
-                    )
+            for quality, speed in itertools.product(quality_param_avif, speed_avif):
+                # Construct output file total path
+                outfile_name, output_path = get_output_path(
+                    dataset_path=PathParameters.DATASET_PATH, effort=speed,
+                    quality=quality, target_image=target_image, format_="avif"
+                )
 
-                    # Print the progress being made
-                    print(f"Started analysing image \"{outfile_name}\"", end="...")
+                # Print the progress being made
+                print(f"Started analysing image \"{outfile_name}\"", end="...")
 
-                    cs = encode_avif(target_image=DATASET_PATH + target_image,
-                                     quality=quality, speed=speed, output_path=output_path)
+                cs = encode_avif(target_image=PathParameters.DATASET_PATH + target_image,
+                                 quality=quality, speed=speed, output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
 
     # WebP
-    if webp is True:
+    if webp:
         for target_image in image_list:
 
-            if not any([target_image.endswith(accepted) for accepted in (".png", ".apng")]):
+            if not any(target_image.endswith(accepted) for accepted in (".png", ".apng")):
                 continue
 
-            for quality in quality_param_webp:
-                for effort in effort_webp:
-                    # Construct output file total path
-                    outfile_name, output_path = get_output_path(
-                        dataset_path=DATASET_PATH, effort=effort, quality=quality,
-                        target_image=target_image, format_="webp"
-                    )
+            for quality, effort in itertools.product(quality_param_webp, effort_webp):
+                # Construct output file total path
+                outfile_name, output_path = get_output_path(
+                    dataset_path=PathParameters.DATASET_PATH, effort=effort, quality=quality,
+                    target_image=target_image, format_="webp"
+                )
 
-                    # Print the progress being made
-                    print(f"Started analysing image \"{outfile_name}\"... ", end="")
+                # Print the progress being made
+                print(f"Started analysing image \"{outfile_name}\"... ", end="")
 
-                    # Add wildcard for now because the extensions are missing
-                    cs = encode_webp(target_image=DATASET_PATH + target_image,
-                                     quality=quality, effort=effort, output_path=output_path)
+                # Add wildcard for now because the extensions are missing
+                cs = encode_webp(target_image=PathParameters.DATASET_PATH + target_image,
+                                 quality=quality, effort=effort, output_path=output_path)
 
-                    # Decode and collect stats to stats df
-                    stats = finalize(cs, outfile_name, output_path, stats, DATASET_PATH + target_image)
+                # Decode and collect stats to stats df
+                stats = finalize(cs, outfile_name, output_path, stats, PathParameters.DATASET_PATH + target_image)
 
-                    # Print when finished
-                    print("Done!")
+                # Print when finished
+                print("Done!")
+
+    # Create directory if it doesn't exist
+    mkdir_if_not_exists(PathParameters.PROCEDURE_RESULTS_PATH, regard_parent=True)
 
     # Save csv files
     # If procedure results file already exists, new file renamed to filename+_1 or _n
     stats.to_csv(
-        original_basename(f"{PROCEDURE_RESULTS_FILE}.csv"), index=False
+        rename_duplicate(f"{PathParameters.PROCEDURE_RESULTS_PATH}.csv"), index=False
     )
 
 
@@ -490,99 +494,41 @@ def get_output_path(dataset_path: str, target_image: str, effort: int, quality: 
     """
 
     # Construct output file total path
-    outfile_name: str = target_image.split(LOSSLESS_EXTENSION)[0] + "_" + f"q{quality}-e{effort}.{format_}"
+    outfile_name: str = f"{target_image.split(LOSSLESS_EXTENSION)[0]}_" + f"q{quality}-e{effort}.{format_}"
+
     # Trim trailing slash "/"
     trimmed: list = dataset_path.split("/")
     trimmed.remove("")
     trimmed: str = "/".join(trimmed)
-    output_path: str = trimmed + "_compressed/" + outfile_name
+    output_path: str = f"{trimmed}_compressed/{outfile_name}"
     return outfile_name, output_path
 
 
-def squeeze_data():
-    """ Digests raw compression stats into condensed stats.
+def main(args: Namespace):
 
-    Condensed stats:
-     * are min/max/avg/std per modality, per body-part and per encoding format.
-     * data is saved under {parameters.PROCEDURE_RESULTS_FILE}.json
-    """
+    if args.outdir:
+        PathParameters.PROCEDURE_RESULTS_PATH = f"{args.outdir}/{PathParameters.PROCEDURE_RESULTS_PATH}"
 
-    # Read csv to df
-    ordered_proc_res = list(filter(
-        lambda file: file.startswith(PROCEDURE_RESULTS_FILE) and file.endswith(".csv"),
-        os.listdir()
-    ))
-    ordered_proc_res.sort()
-    latest_procedure_results = ordered_proc_res[-1]
-
-    df = pd.read_csv(latest_procedure_results)
-
-    # Aggregate the results to a dict
-    resume = dict()
-
-    for _, filename in enumerate(df["filename"]):
-        settings = filename.split("_")[-1]
-        modality = dataset_img_info(filename, MODALITY)
-        depth = dataset_img_info(filename, DEPTH)
-        samples_per_pixel = dataset_img_info(filename, SAMPLES_PER_PIXEL)
-        bits_per_sample = dataset_img_info(filename, BITS_PER_SAMPLE)
-
-        # Dataframe containing only the data associated to the settings/characteristics at hand
-        fname_df = df.copy()
-        for i, row in fname_df.iterrows():
-            # If row does not fit, drop it from df
-            other_filename = row["filename"]
-            fits: bool = (
-                    other_filename.endswith(settings)
-                    and dataset_img_info(other_filename, MODALITY) == modality
-                    and dataset_img_info(other_filename, DEPTH) == depth
-                    and dataset_img_info(other_filename, SAMPLES_PER_PIXEL) == samples_per_pixel
-                    and dataset_img_info(other_filename, BITS_PER_SAMPLE) == bits_per_sample
-            )
-            if not fits:
-                fname_df = fname_df.drop(i)
-
-        # Create settings and modality entry if they don't exist
-        if resume.get(settings) is None:
-            resume[settings] = dict()
-        if resume[settings].get(modality) is None:
-            resume[settings][modality] = dict()
-        if resume[settings][modality].get(depth) is None:
-            resume[settings][modality][depth] = dict()
-        if resume[settings][modality][depth].get(samples_per_pixel) is None:
-            resume[settings][modality][depth][samples_per_pixel] = dict()
-        if resume[settings][modality][depth][samples_per_pixel].get(bits_per_sample) is None:
-            resume[settings][modality][depth][samples_per_pixel][bits_per_sample] = dict()
-        else:
-            # Entry has already been filled, skip to avoid re-doing the operations
-            continue
-
-        entry = resume[settings][modality][depth][samples_per_pixel][bits_per_sample]
-
-        # Gather statistics
-        for metric in df.keys():
-            # Brownfield solution to excluding the filename key
-            if metric in ["filename", "size"]:
-                continue
-
-            mean = np.mean(fname_df[metric])
-            std = np.std(fname_df[metric]) if mean != float("inf") else 0.
-
-            entry[metric] = dict(
-                min=fname_df[metric].min(), max=fname_df[metric].max(),
-                avg=mean, std=std
-            )
-        entry["size"] = fname_df.shape[0]
-
-    # Save dict to a json
-    out_file = open(original_basename(f"{PROCEDURE_RESULTS_FILE}.json"), "w")
-    json.dump(resume, out_file, indent=4)
-
-
-if __name__ == '__main__':
     check_codecs()
 
+    # Create paths
+    if not os.path.exists(PathParameters.DATASET_PATH):
+        os.makedirs(PathParameters.DATASET_PATH)
+    if not os.path.exists(PathParameters.DATASET_COMPRESSED_PATH):
+        os.makedirs(PathParameters.DATASET_COMPRESSED_PATH)
     rm_encoded()
 
     bulk_compress(jxl=True, avif=True, webp=True)
-    squeeze_data()
+    squeeze_data(PathParameters.PROCEDURE_RESULTS_PATH)
+
+
+if __name__ == '__main__':
+
+    parser = ArgumentParser("(De)compress the provided dataset and capture metrics into data files.")
+
+    parser.add_argument("--output", dest='outdir', action='store', nargs='?', type=PosixPath, default=".",
+                        help='Specify output directory of metric result files. (Not yet available)')
+
+    _args = parser.parse_args()
+
+    main(_args)

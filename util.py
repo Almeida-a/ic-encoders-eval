@@ -3,13 +3,17 @@
 """
 
 import os
+import re
+import subprocess
 import time
-from subprocess import Popen, PIPE
+from pathlib import PosixPath
 
 import cv2
+import pydicom
+from pydicom.errors import InvalidDicomError
 
 from custom_apng import get_apng_frames_resolution, get_apng_depth
-from parameters import DATASET_COMPRESSED_PATH, DEPTH
+from parameters import PathParameters, DEPTH
 
 
 def construct_djxl(decoded_path, target_image):
@@ -34,8 +38,7 @@ def construct_davif(decoded_path: str, input_path: str):
     @param input_path: Input path
     @return: Command
     """
-    command: str = f"avif_decode {input_path} {decoded_path}"
-    return command
+    return f"avif_decode {input_path} {decoded_path}"
 
 
 def construct_dwebp(decoded_path: str, input_path: str, additional_options: str = ""):
@@ -48,8 +51,7 @@ def construct_dwebp(decoded_path: str, input_path: str, additional_options: str 
     @param input_path: Input path
     @return: Command
     """
-    command: str = f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
-    return command
+    return f"dwebp -v {input_path} {additional_options} -o {decoded_path}"
 
 
 def construct_cwebp(effort, output_path, quality, target_image):
@@ -77,10 +79,7 @@ def construct_cavif(output_path, quality, speed, target_image):
     @param target_image: Input
     @return: Void
     """
-    command: str = f"cavif -o {output_path} " \
-                   f"--quality {quality} --speed {speed} --quiet " \
-                   f"{os.path.abspath(target_image)}"
-    return command
+    return f"cavif -o {output_path} " f"--quality {quality} --speed {speed} --quiet " f"{os.path.abspath(target_image)}"
 
 
 def construct_cjxl(distance, effort, output_path, target_image):
@@ -94,9 +93,41 @@ def construct_cjxl(distance, effort, output_path, target_image):
     @param target_image: Input
     @return: Void
     """
-    command: str = f"cjxl {target_image} {output_path} " \
-                   f"--distance={distance} --effort={effort} --quiet"
-    return command
+    return f"cjxl {target_image} {output_path} " f"--distance={distance} --effort={effort} --quiet"
+
+
+def number_lgt_regex(expr: str) -> str:
+    """Parses lt/gt condition expression into a regex that validates such a number
+
+    @note function name could be read as - number lesser or greater than regular expression
+
+    @param expr: Bigger/Lesser than condition - e.g.: "<122", ">9".
+    @return: Regex that validates a number which passes the expression
+    """
+
+    bigger_than = re.compile(r">\d+")
+    lesser_than = re.compile(r"<\d+")
+
+    number = int(expr[1:])
+    digits_count = len(expr) - 1
+    last_digit = number % 10
+
+    if bigger_than.fullmatch(expr) is not None:
+        return fr"((\d{{{digits_count + 1}}}\d*)|(\d{{{digits_count - 1}}}[{last_digit + 1}-9]))"
+        # return re.compile(fr"""\
+        # (\d{{{digits_count + 1}}}\d*)\                  # More digits than the number
+        # |\                                              # or
+        # (\d{{{digits_count - 1}}}[{last_digit + 1}-9])  # Same #digits, but last one is greater than number % 10
+        # """, re.VERBOSE).pattern
+    elif lesser_than.fullmatch(expr) is not None:
+        return fr"((\d{{1,{digits_count - 1}}})|(\d{{{digits_count - 1}}}[0-{last_digit-1}]))"
+        # return fr"""\
+        # (\d{{1,{digits_count - 1}}})\                   # Less digits than the original number
+        # |\                                              # or
+        # (\d{{{digits_count - 1}}}[0-{last_digit-1}])    # Same #digits, but last one is lesser than number % 10
+        # """
+
+    raise AssertionError(f"This is not a lt/gt expression! '{expr}'")
 
 
 def timed_command(stdin: str) -> float:
@@ -109,24 +140,13 @@ def timed_command(stdin: str) -> float:
     """
     # Execute command and time the CT
     start = time.time()
-    p = Popen(stdin, shell=True, stdout=PIPE, stderr=PIPE)
-    _, stderr = p.communicate(timeout=180)
-    ct = time.time() - start  # or extract_webp_ct(stderr)
-    # Check for errors
-    return_code: int = p.returncode
-    if return_code != 0:
-        print(f"Error code {return_code}, executing:"
-              f"\nStdIn -> {stdin}"
-              f"\nStdErr -> {stderr}")
-        exit(1)
-
-    return ct
+    subprocess.run(stdin, shell=True, check=True, timeout=180,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return time.time() - start
 
 
 def total_pixels(target_image: str) -> int:
-    """Counts the number of pixels on an image
-
-    Count method: height * height
+    """Counts the number of pixels of an image
 
     @param target_image: Input image path
     @return: Number of pixels
@@ -142,14 +162,11 @@ def total_pixels(target_image: str) -> int:
 
         return height * width * depth
 
-    height, width = cv2.imread(target_image).shape[:2]
-    # Number of pixels in the image
-    pixels = height * width
-    return pixels
+    return cv2.imread(target_image, cv2.IMREAD_UNCHANGED).size
 
 
-def original_basename(intended_abs_filepath: str) -> str:
-    """Get an original filename given the absolute path
+def rename_duplicate(intended_abs_filepath: str) -> str:
+    """Finds an original filename if it is already taken
 
     Example - give path/to/filename.txt -> it already exists -> return path/to/filename_1.txt
 
@@ -171,11 +188,11 @@ def original_basename(intended_abs_filepath: str) -> str:
 
 
 def rm_encoded():
-    """Removes compressed files from a previous (probably unsuccessful) execution
+    """Removes compressed files from a previous execution
 
     """
-    for file in os.listdir(DATASET_COMPRESSED_PATH):
-        os.remove(os.path.abspath(DATASET_COMPRESSED_PATH + file))
+    for file in os.listdir(PathParameters.DATASET_COMPRESSED_PATH):
+        os.remove(os.path.abspath(PathParameters.DATASET_COMPRESSED_PATH + file))
 
 
 def dataset_img_info(target_image: str, keyword: int) -> str:
@@ -186,6 +203,68 @@ def dataset_img_info(target_image: str, keyword: int) -> str:
     @return: Attribute value for the image
     """
     retval = os.path.basename(target_image).split("_")[keyword]
-    if keyword == DEPTH:
-        return retval.replace(".apng", "")
-    return retval
+    return retval.replace(".apng", "") if keyword == DEPTH else retval
+
+
+def remove_last_dict_level(dictionary: dict) -> dict | list:
+    """Recursive function to remove the last level of a (tree-like) nested dictionary
+
+    @note If there is but one non-dict type value in a level, that one is removed
+
+    @param dictionary:
+    @return:
+    """
+
+    for key in dictionary:
+        # Stop condition
+        if type(dictionary[key]) != dict:
+            dictionary = list(dictionary.keys())
+            break
+
+        # Recursive call
+        dictionary[key] = remove_last_dict_level(dictionary[key])
+
+    return dictionary
+
+
+def sort_by_keys(*args) -> list:
+    """Sort all the lists by the first one
+
+    @return: A list with the lists provided, each one ordered according to the first one
+    """
+    zipped = zip(*args)
+    zipped = list(sorted(zipped, key=lambda elem: float(elem[0]), reverse=False))
+    return list(zip(*zipped))
+
+
+def is_file_a_dicom(file):
+    """
+    Check whether a given file is of type DICOM
+
+    :param file: path to the file to identify
+     :type file: str
+
+    :return: True if the file is DICOM, False otherwise
+     :rtype: bool
+
+    """
+
+    try:
+        pydicom.read_file(file, stop_before_pixels=True)
+    except InvalidDicomError:
+        return False
+    return True
+
+
+def mkdir_if_not_exists(path: str, regard_parent: bool = False):
+    """Create directory if the one in the path provided does not exist
+
+    @param path:
+    @param regard_parent: Evaluate parent directory instead
+    @return:
+    """
+    if regard_parent:
+        path = str(PosixPath(path).parent)
+
+    if os.path.isdir(path) and not os.path.exists(path):
+        os.makedirs(path)

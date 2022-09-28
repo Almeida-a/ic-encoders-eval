@@ -13,10 +13,9 @@ This is a project secondary experiment.
 
 """
 
-import json
 import os
 from subprocess import Popen, PIPE
-from typing import Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -25,41 +24,21 @@ from pydicom import dcmread
 
 import dicom_parser
 import metrics
-from parameters import JPEG_EVAL_RESULTS_FILE, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, DATASET_PATH
+from dicom_parser import extract_attributes
+from parameters import PathParameters, QUALITY_TOTAL_STEPS, MINIMUM_JPEG_QUALITY, ResultsColumnNames
+from squeeze import squeeze_data
 
 QUALITY_SPREAD: int = 1
 # Quality settings
-QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS)\
+QUALITY_VALUES: np.ndarray = np.linspace(MINIMUM_JPEG_QUALITY, 100, QUALITY_TOTAL_STEPS) \
     .astype(np.ubyte)
 
-
-def images(ext: str) -> str:
-    """Generator function that yields images to be studied
-
-    :param ext: Extension used to filter the images (the ones that don't have that format)
-    :return: Sequence of image files path to be processed for the experiment
-    """
-
-    possible_ext = (".jpg", ".png", ".dcm")
-
-    if ext not in possible_ext:
-        raise AssertionError(f"Unsupported extension: {ext}")
-
-    prefix: str = "images/dataset"
-
-    if ext == ".dcm":
-        prefix += "_dicom"
-    prefix += "/"
-
-    for file in os.listdir(prefix):
-        if file.endswith(ext) or ext == ".dcm":
-            # If we are looking for the dicom files, the extensions might not be there, but we know they are
-            #   in that prefix/dir, thus no verification needed
-            yield prefix+file
+# Alias
+R = ResultsColumnNames
 
 
 def compress_n_compare():
-    """ Compress and extract jpeg statistic
+    """Compress and extract jpeg statistic
 
     The purpose is to compress a set of uncompressed images in JPEG
     Compression is performed using multiple quality configurations
@@ -70,19 +49,26 @@ def compress_n_compare():
 
     # Compress using the above quality parameters
     # Save the compression ratio in a dataframe
-    df = pd.DataFrame(data=dict(fname=[], cr=[], mse=[], psnr=[], ssim=[]))
-    for file_path in images(".dcm"):
-        file_name: str = os.path.basename(file_path)
+    results = pd.DataFrame(data=dict(filename=[], cr=[], mse=[], psnr=[], ssim=[]))
+
+    for file_name in os.listdir(PathParameters.DATASET_DICOM_PATH):
+        file_path: str = PathParameters.DATASET_DICOM_PATH + file_name
 
         print(f"Evaluating {file_name}", end="...")
         for quality in QUALITY_VALUES:
-
-            encoded_target_path = f"{DATASET_PATH}tmp.dcm"
+            dcm_data = dcmread(file_path)
 
             # Read input uncompressed image file
-            dcm_data = dcmread(file_path)
-            bits_per_sample = dcm_data[dicom_parser.STORED_BITS_TAG]
             uncompressed_img: ndarray = dcm_data.pixel_array
+
+            body_part, bits_per_sample, color_space, modality, samples_per_pixel = extract_attributes(dcm_data)
+            bits_allocated = dcm_data.get(dicom_parser.BITS_ALLOCATED_TAG)
+            nframes: int = dicom_parser.get_number_of_frames(dcm_data, uncompressed_img.shape,
+                                                             single_channel=samples_per_pixel == 1)
+
+            encoded_target_path = f"{PathParameters.DATASET_PATH}{modality.value}_{body_part.value}" \
+                                  f"_{color_space.value.replace('_', '')}_{samples_per_pixel.value}" \
+                                  f"_{bits_per_sample.value}_{nframes}.dcm"
 
             # Encode input file
             command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
@@ -93,15 +79,15 @@ def compress_n_compare():
 
             encoded_pixel_array: ndarray = img_encoded.pixel_array
 
-            assert encoded_pixel_array.dtype == uncompressed_img.dtype,\
-                f"Unexpected loss of bit depth to {encoded_pixel_array.dtype}!"
+            assert encoded_pixel_array.dtype == uncompressed_img.dtype, \
+                f"Unexpected loss of bit depth from {uncompressed_img.dtype} to {encoded_pixel_array.dtype}!"
 
-            # Get the compressed image size
-            img_encoded_size = len(img_encoded.PixelData)
+            # Get the compressed image size (bytes)
+            uncompressed_img_size: float | Any = uncompressed_img.size * (bits_allocated.value / 8)
+            img_encoded_size: int = len(img_encoded.PixelData)
 
-            # Calculate dataset_compressed bitstream size
-            og_image_bit_depth = int(uncompressed_img.dtype.name.split("uint")[1])
-            cr = uncompressed_img.size * og_image_bit_depth / img_encoded_size
+            # Calculate CR
+            cr = uncompressed_img_size / img_encoded_size
 
             # Calculate the SSIM between the images
             mse, ssim = (
@@ -110,16 +96,31 @@ def compress_n_compare():
             psnr = metrics.custom_psnr(uncompressed_img, encoded_pixel_array, bits_per_sample=bits_per_sample.value)
 
             # Write to dataframe
-            df = pd.concat([pd.DataFrame(dict(
-                fname=[f"{file_name}_q{quality}"],
+            suffix = f'_q{quality}.jpeg'
+            file_name = os.path.basename(encoded_target_path).replace('.dcm', suffix)
+
+            # Ensure file name is unique (add id if need be)
+            if file_name in list(results["filename"].values):
+                file_name = file_name.replace(suffix, f"_1{suffix}")
+                i = 1
+                while file_name in results["filename"].values:
+                    file_name = file_name.replace(f"_{i}{suffix}", f"_{i+1}{suffix}")
+                    i += 1
+
+            results = pd.concat([pd.DataFrame(dict(
+                filename=[f"{file_name}"],
                 cr=[cr],
                 mse=[mse],
                 psnr=[psnr],
                 ssim=[ssim]
-            )), df])
+            )), results])
 
         print("Done!")
-    df.to_csv(f"{JPEG_EVAL_RESULTS_FILE}.csv", index=False)
+
+    for generated_dcm in filter(lambda file: file.endswith(".dcm"), os.listdir(PathParameters.DATASET_PATH)):
+        os.remove(PathParameters.DATASET_PATH+generated_dcm)
+
+    results.to_csv(f"{PathParameters.JPEG_EVAL_RESULTS_PATH}.csv", index=False)
 
 
 def exec_cmd(command):
@@ -134,52 +135,13 @@ def exec_cmd(command):
         exit(1)
 
 
-def squeeze_stats(csv_file_path: str):
-    """Reads csv with raw data and writes json w/ more readable statistics
-
-    :param csv_file_path: File with raw data
-    :return:
-    """
-    # Check validity of argument
-    if not os.path.exists(csv_file_path):
-        raise AssertionError(f"Path: {csv_file_path} does not contain a file!")
-    if not csv_file_path.endswith(".csv"):
-        raise AssertionError(f"Argument file {csv_file_path} format is not csv")
-
-    df = pd.read_csv(csv_file_path)
-
-    # For common quality settings, calculate stats for CR and SSIM (min/max/avg/dev)
-    stats: Dict[str, Dict[str, Dict[str, float]]] = dict()
-    for quality_val in QUALITY_VALUES:
-        # Cast quality_val to int
-        quality_val = int(quality_val)
-        # Get df rows where filename.endswith("*_q{qv}")
-        sub_df = pd.DataFrame(data={title: [] for title in df.keys()})
-        for index, row in df.iterrows():
-            if row["fname"].endswith(f"_q{quality_val}"):
-                sub_df.loc[len(sub_df.index)] = row
-        # Set up new entry in stat dict
-        stats[f"q{quality_val}"] = dict()
-
-        for metric in ("mse", "psnr", "ssim", "cr"):
-            # Write stats in dict
-            metric_vals: List[float] = sub_df[metric]
-            stats[f"q{quality_val}"][metric] = dict(
-                min=min(metric_vals), max=max(metric_vals),
-                avg=np.mean(metric_vals), stddev=np.std(metric_vals)
-            )
-
-    # Store the results in a json file
-    out_file = open(f"{JPEG_EVAL_RESULTS_FILE}.json", "w")
-    json.dump(stats, out_file, indent=6)
-
-
 def check_deps():
     """Verifies the existence of dependencies
 
     """
+    print("Searching for the dcmcjpeg tool... ", end="")
     if os.system("which dcmcjpeg") != 0:
-        print(f"dcmtk not found!")
+        print("dcmtk not found!")
         exit(1)
 
 
@@ -187,4 +149,4 @@ if __name__ == '__main__':
     check_deps()
 
     compress_n_compare()
-    squeeze_stats(f"{JPEG_EVAL_RESULTS_FILE}.csv")
+    squeeze_data(PathParameters.JPEG_EVAL_RESULTS_PATH)

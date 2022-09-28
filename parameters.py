@@ -1,24 +1,49 @@
 """Procedure parameters
 
+These are configuration variables whose values can be changed without breaking the code
+
 This script includes configuration values to the experiment including, but not limited to:
  * the dataset path
  * The lossless encoding format of the evaluation input images
 """
 
-import metrics
+
+from enum import Enum
+
 
 LOSSLESS_EXTENSION: str = ".png"
 
-PROCEDURE_RESULTS_FILE: str = "procedure_results"
-JPEG_EVAL_RESULTS_FILE: str = "jpeg_eval_results"
-DATASET_PATH: str = "images/dataset/"
-DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"
+PREFIX: str = "/tmp/"
+
+
+class PathParameters:
+    PROCEDURE_RESULTS_PATH: str = "procedure_results"
+    JPEG_EVAL_RESULTS_PATH: str = "jpeg_eval_results"
+    DATASET_PATH: str = "images/dataset/"
+    DATASET_COMPRESSED_PATH: str = "images/dataset_compressed/"
+    DATASET_DICOM_PATH: str = "images/dataset_dicom/"
+    GRAPHS_PATH = f"{PREFIX}images/graphs/"
+
 
 # Info flags
 JXL_SUPPORTED_VERSIONS: tuple = ("0.6.1",)
 CAVIF_RS_SUPPORTED_VERSIONS: tuple = ("1.3.4",)
 AVIF_DECODE_SUPPORTED_VERSIONS: tuple = ("0.2.2",)
 WEBP_SUPPORTED_VERSIONS: tuple = ("0.4.1",)
+
+
+class ResultsColumnNames(Enum):
+    """Defines the names of the columns from pipeline result csv files
+
+    """
+    FILENAME = "filename"
+    COMPRESSION_SPEED = "cs"
+    DECOMPRESSION_SPEED = "ds"
+    COMPRESSION_RATIO = "cr"
+    MEAN_SQUARED_ERROR = "mse"
+    PEAK_SIGNAL_TO_NOICE_RATIO = "psnr"
+    STRUCTURAL_SIMILARITY = "ssim"
+
 
 # FILENAME_KEYWORDS = id
 MODALITY = 0

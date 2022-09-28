@@ -1,23 +1,26 @@
-"""Parse the .dcm dataset into standalone images dataset.
+"""Parse the .dcm dataset into standalone images' dataset.
 
     Extracts the image from the DICOM file (assuming only one frame is present)
     and writes it in the dataset {parameters.DATASET_PATH} in the image format {parameters.LOSSLESS_EXTENSION}.
 """
-
 import os
+from argparse import ArgumentParser, Namespace
+from pathlib import PosixPath
 
 import cv2
 import numpy as np
-from pydicom import dcmread, FileDataset
+from pydicom import dcmread, FileDataset, DataElement
 from pydicom.pixel_data_handlers import convert_color_space
 from pydicom.tag import BaseTag
 from pydicom.valuerep import VR
 
+import util
 from custom_apng import write_apng
-from parameters import DATASET_PATH, LOSSLESS_EXTENSION
+from parameters import PathParameters, LOSSLESS_EXTENSION, PREFIX
 
 MODALITY_TAG = BaseTag(0x0008_0060)
 BODY_PART_TAG = BaseTag(0x0018_0015)
+BITS_ALLOCATED_TAG = BaseTag(0x0028_0100)
 STORED_BITS_TAG = BaseTag(0x0028_0101)
 PHOTOMETRIC_INTERPRETATION_TAG = BaseTag(0x0028_0004)  # ColourSpace
 SAMPLES_PER_PIXEL_TAG = BaseTag(0x0028_0002)
@@ -39,14 +42,7 @@ def parse_dcm(filepath: str):
     # Read file
     file_data: FileDataset = dcmread(filepath)
 
-    # Extract metadata for output file naming
-    if file_data.get(BODY_PART_TAG) is None:
-        file_data.add_new(BODY_PART_TAG, VR.CS, "NA")
-    body_part = file_data[BODY_PART_TAG]
-    modality = file_data[MODALITY_TAG]
-    bps = file_data[STORED_BITS_TAG]
-    samples_per_pixel = file_data[SAMPLES_PER_PIXEL_TAG]
-    color_space = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
+    body_part, bps, color_space, modality, samples_per_pixel = extract_attributes(file_data)
 
     single_channel: bool = samples_per_pixel.value == 1
 
@@ -55,20 +51,12 @@ def parse_dcm(filepath: str):
     if not single_channel:
         img_array = convert_color_space(img_array, color_space.value, "RGB")
 
-    number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
-    if number_of_frames is not None:
-        number_of_frames = number_of_frames.value
-    else:
-        # When the info on # of frames is on the dicom metadata
-        if single_channel and len(img_array.shape) == 3 or len(img_array.shape) == 4:
-            number_of_frames = img_array.shape[0]
-        else:
-            number_of_frames = 1
+    number_of_frames = get_number_of_frames(file_data, img_array.shape, single_channel)
 
     # Set image path where it will be written on
     attributes = '_'.join([str(elem) for elem in (color_space.value.replace("_", ""),
                                                   samples_per_pixel.value, bps.value, number_of_frames)])
-    out_img_path: str = DATASET_PATH + f"{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
+    out_img_path: str = f"{PathParameters.DATASET_PATH}{modality.value.replace(' ', '')}_{body_part.value}_{attributes}"
 
     repetition_id = 0
 
@@ -97,6 +85,44 @@ def parse_dcm(filepath: str):
         os.remove(out_img_path)
         # Warn the user of the issue
         raise AssertionError(f"Quality loss accidentally applied to the image \"{out_img_path}\"!")
+
+
+def get_number_of_frames(file_data: FileDataset, img_shape: tuple, single_channel: bool) -> int:
+    """Extract number of frames of image from dicom file
+
+    @param file_data:
+    @param img_shape:
+    @param single_channel:
+    @return:
+    """
+    ndim = len(img_shape)
+
+    number_of_frames = file_data.get(NUMBER_OF_FRAMES_TAG)
+    if number_of_frames is not None:
+        number_of_frames = number_of_frames.value
+    elif single_channel and ndim == {3, 4}:
+        number_of_frames = img_shape[0]
+    else:
+        number_of_frames = 1
+    return number_of_frames
+
+
+def extract_attributes(file_data: FileDataset) \
+        -> tuple[DataElement, DataElement, DataElement, DataElement, DataElement]:
+    """Extract main attributes from dicom file
+
+    @param file_data:
+    @return:
+    """
+    # Extract metadata for output file naming
+    if file_data.get(BODY_PART_TAG) is None:
+        file_data.add_new(BODY_PART_TAG, VR.CS, "NA")
+    body_part: DataElement = file_data[BODY_PART_TAG]
+    modality: DataElement = file_data[MODALITY_TAG]
+    bps: DataElement = file_data[STORED_BITS_TAG]
+    samples_per_pixel: DataElement = file_data[SAMPLES_PER_PIXEL_TAG]
+    color_space: DataElement = file_data[PHOTOMETRIC_INTERPRETATION_TAG]
+    return body_part, bps, color_space, modality, samples_per_pixel
 
 
 def write_multi_frame(out_img_path: str, img_array: np.ndarray, is_single_channel: bool):
@@ -134,10 +160,9 @@ def write_single_frame(img_array: np.ndarray, out_img_path: str) -> np.ndarray:
     """
 
     # Encode and write image to dataset folder
-    assert cv2.imwrite(out_img_path, img_array) is True, "Image writing (single frame) failed"
     # Assert no information loss within the written image
-    saved_img_array: np.ndarray = cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
-    return saved_img_array
+    assert cv2.imwrite(out_img_path, img_array) is True, "Image writing (single frame) failed"
+    return cv2.imread(out_img_path, cv2.IMREAD_UNCHANGED)
 
 
 def exec_shell(command: str):
@@ -151,19 +176,67 @@ def exec_shell(command: str):
     assert return_code == 0, f"Problem executing \"{command}\", code {return_code}"
 
 
-if __name__ == "__main__":
-    # Specify the directory where the dicom files are
-    raw_dataset: str = "images/dataset_dicom/"
-    dirs: list[str] = []
+def run_parsing(dicom_path: PosixPath):
+    """Main function for this module
 
-    # Get all dicom files (hardcoded)
-    for filename in os.listdir(raw_dataset):
-        dirs.append(filename)
+    @param dicom_path: The directory with the dicom files (no need to be an actual DICOM_DIR)
+    """
+    print("Pre-processing dicom dataset into .(a)png", end="...")
+
+    dicom_path_str = str(dicom_path)
+
+    if not os.path.exists(dicom_path):
+        os.makedirs(dicom_path)
+    if not os.path.exists(PathParameters.DATASET_PATH):
+        os.makedirs(PathParameters.DATASET_PATH)
 
     # Empty the images/dataset directory
-    for file in os.listdir(DATASET_PATH):
-        os.remove(DATASET_PATH+file)
+    for file in os.listdir(PathParameters.DATASET_PATH):
+        os.remove(PathParameters.DATASET_PATH + file)
 
+    files: list[str] = list(os.listdir(dicom_path_str))
     # Call a function to parse each dicom file
-    for dcm_file in dirs:
-        parse_dcm(filepath=raw_dataset+dcm_file)
+    if dicom_path.is_dir():
+        for dcm_file in files:
+            if not util.is_file_a_dicom(f"{dicom_path_str}/{dcm_file}"):
+                print(f"File '{dcm_file}' is not dicom. Skipping...")
+                continue
+            parse_dcm(filepath=f"{dicom_path_str}/{dcm_file}")
+    elif dicom_path.is_file():
+        if util.is_file_a_dicom(dicom_path_str):
+            parse_dcm(filepath=dicom_path_str)
+    else:
+        print(f"Path '{dicom_path.name}' is not a directory nor dicom file!")
+        return
+    print("Done!")
+
+
+def main(args: Namespace):
+    dicom_dirs = args.input
+
+    if path := args.path:
+        path = path.replace('~', os.environ['HOME'])
+        PathParameters.DATASET_PATH = f'{path}/'
+
+    if args.tmp:
+        PathParameters.DATASET_PATH = PREFIX + PathParameters.DATASET_PATH
+
+    for dicom_path in dicom_dirs:
+        run_parsing(dicom_path=dicom_path)
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description=f"Preprocess dicom files into lossless "
+                                        f"'{LOSSLESS_EXTENSION}' format images")
+
+    parser.add_argument('--tmp', action='store_true',
+                        help='Store output files inside /tmp/ directory')
+    parser.add_argument('--path', action='store', nargs='?',
+                        help='Define the path for the output files (beware if you choose '
+                             'this option along with --tmp, /tmp/ will be appended as prefix anyways)')
+    parser.add_argument('input', action='store', nargs='+', type=PosixPath,
+                        help='Folder or dicom files to serve as input for the experience')
+
+    _args = parser.parse_args()
+
+    main(args=_args)

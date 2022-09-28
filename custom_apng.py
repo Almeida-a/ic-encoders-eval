@@ -94,10 +94,10 @@ def write_apng(file_name: str, img_array: np.ndarray) -> tuple[bool, np.ndarray]
     for i in range(img_array.shape[0]):
         frame: np.ndarray = img_array[i]
 
-        sub_frame_fname = f"tmp{i}.png"
-        sub_frames_fn_list.append(sub_frame_fname)
+        frame_filename = f"tmp{i}.png"
+        sub_frames_fn_list.append(frame_filename)
 
-        cv2.imwrite(sub_frame_fname, frame, params=[cv2.IMWRITE_TIFF_COMPRESSION, 1])
+        cv2.imwrite(frame_filename, frame)
 
     apng_img = apng.APNG.from_files(sub_frames_fn_list)
     apng_img.save(file_name)
