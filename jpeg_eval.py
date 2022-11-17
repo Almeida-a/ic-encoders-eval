@@ -54,12 +54,12 @@ def compress_n_compare():
     for file_name in os.listdir(PathParameters.DATASET_DICOM_PATH):
         file_path: str = PathParameters.DATASET_DICOM_PATH + file_name
 
+        dcm_data = dcmread(file_path)
+        # Read input uncompressed image file
+        uncompressed_img: ndarray = dcm_data.pixel_array
+
         print(f"Evaluating {file_name}", end="...")
         for quality in QUALITY_VALUES:
-            dcm_data = dcmread(file_path)
-
-            # Read input uncompressed image file
-            uncompressed_img: ndarray = dcm_data.pixel_array
 
             body_part, bits_per_sample, color_space, modality, samples_per_pixel = extract_attributes(dcm_data)
             bits_allocated = dcm_data.get(dicom_parser.BITS_ALLOCATED_TAG)
