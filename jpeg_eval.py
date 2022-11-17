@@ -72,15 +72,18 @@ def compress_n_compare():
 
             # Encode input file
             command = f"dcmcjpeg +ee +q {quality} {file_path} {encoded_target_path}"
-            exec_cmd(command)
+            if exec_cmd(command) is False:
+                print("Skipped because of error at encoding.")
+                continue
 
             # Read encoded image file
             img_encoded = dcmread(encoded_target_path)
 
             encoded_pixel_array: ndarray = img_encoded.pixel_array
 
-            assert encoded_pixel_array.dtype == uncompressed_img.dtype, \
-                f"Unexpected loss of bit depth from {uncompressed_img.dtype} to {encoded_pixel_array.dtype}!"
+            if not compatible_datatypes(encoded_pixel_array, uncompressed_img):
+                print(f"Unexpected loss of bit depth from {uncompressed_img.dtype} to {encoded_pixel_array.dtype}!")
+                break
 
             # Get the compressed image size (bytes)
             uncompressed_img_size: float | Any = uncompressed_img.size * (bits_allocated.value / 8)
@@ -123,16 +126,22 @@ def compress_n_compare():
     results.to_csv(f"{PathParameters.JPEG_EVAL_RESULTS_PATH}.csv", index=False)
 
 
-def exec_cmd(command):
+def compatible_datatypes(ndarray1, ndarray2):
+    return ndarray1.dtype == ndarray2.dtype
+
+
+def exec_cmd(command) -> bool:
     """
 
     @param command:
     """
     p = Popen(command, shell=True, stdout=PIPE, stderr=PIPE)
-    p.communicate(timeout=15)
+    _, _ = p.communicate(timeout=15)
     if p.returncode != 0:
-        print(f"Error status {p.returncode} executing the following command: \"{command}\"")
-        exit(1)
+        print(f"\nError status {p.returncode} executing the following command: \"{command}\"."
+              f" Hint: Run it again to debug")
+        return False
+    return True
 
 
 def check_deps():
